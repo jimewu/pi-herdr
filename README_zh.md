@@ -22,6 +22,14 @@
 
 **左主右子**：orchestrator（主 agent）**永遠佔畫面左半邊（50%）**，subagent 在右半邊**等分**排列（第一個最上方、依序向下）。第一次 `pane_split right`，之後只對最新產生的右側 pane 做 `pane_split down`，並在第 k 次指定 `ratio = 1/(N-k+1)` 讓右半邊均分（絕不動主 agent）。完工的 subagent **預設立即關閉**（orchestrator 讀完結果後就 close），除非使用者要求保留。詳細 split 序列與 JSON 範例見 `SKILL.md` → *版面配置慣例*。
 
+## Git worktree 工作流
+
+在 git repo 內、subagent 要實際改檔的並行任務，每個 subagent 在各自的 `git worktree` + branch 工作（pane `cwd` = worktree），可以在自己 branch commit；完工後由獨立 reviewer subagent 審查，通過才由 orchestrator merge 到 `main`，然後關閉 pane 並刪除 worktree & branch。唯讀/研究型任務不需要 worktree。見 `SKILL.md` → *Git repo 並行開發：worktree 工作流*。
+
+## Subagent model fallback
+
+subagent 用的 model 由 env 驅動（預設 `provider/model`；高品質/1M ctx 用 `provider/model`；批量 8 併發用 `provider/model`），從 `~/.profile` export。skill 依任務型別選 model，start 失敗時依 `DEFAULT → HIGH → BULK` 重試。只影響 subagent，不影響 orchestrator session。見 `SKILL.md` → *Subagent model 選擇與 fallback*。
+
 ## 載入
 
 ```bash

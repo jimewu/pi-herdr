@@ -22,6 +22,14 @@ asset layer         agents/*.md: ready-made subagent profiles
 
 **Left-master, right-workers**: the orchestrator pane always keeps the left half of the screen (50%); subagents divide the right half into equal rows (first at top, then downward). Split right once, then keep splitting the newest right-side pane down with `ratio = 1/(N-k+1)` on the k-th split so the right column stays evenly divided. Finished subagents are **closed by default** right after the orchestrator reads their results, unless the user asks to keep them. See `SKILL.md` → *版面配置慣例* for the exact split sequence and JSON examples.
 
+## Git worktree workflow
+
+In a git repo where parallel subagents actually edit files, each subagent works in its own `git worktree` + branch (pane `cwd` = the worktree), may commit on its own branch, and is reviewed by an independent reviewer subagent before the orchestrator merges to `main`. After delivery the orchestrator closes the pane and removes the worktree & branch. Read-only / research tasks skip worktrees. See `SKILL.md` → *Git repo 並行開發：worktree 工作流*.
+
+## Subagent model fallback
+
+Subagent models are driven by env vars (default `provider/model`; high-quality / 1M-ctx `provider/model`; bulk 8-concurrency `provider/model`), exported from `~/.profile`. The skill picks the model by task type and retries `DEFAULT → HIGH → BULK` on start failure. This only affects subagents, never the orchestrator session. See `SKILL.md` → *Subagent model 選擇與 fallback*.
+
 ## Load
 
 ```bash
