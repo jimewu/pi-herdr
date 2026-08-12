@@ -4,55 +4,59 @@
 
 ## 這個 repo 提供什麼
 
-- **`SKILL.md`** — 策略層。告訴 pi **何時**建議分派 subagent（並行探索、黑箱研究、上下文隔離）、**怎麼**跑標準工作流（split → start → prompt → 監督 → 關閉）、以及**怎麼用**下面的 profiles。這**不是** Herdr 官方 skill（官方版以 CLI 為中心且為 opt-in）；這是針對 [pi-herdr](https://github.com/ogulcancelik/pi-herdr) extension tools 重寫的本地版本。
-- **`agents/`** — 可重用的 subagent profiles（YAML frontmatter + system prompt body），採用 [pi subagent 格式](https://github.com/earendil-works/pi/blob/main/examples/extensions/subagent/README.md)。orchestrator 讀取 profile 後組裝 `herdr_agent start` 參數（`--model`、`-t`、`--append-system-prompt`）。
-- **`scripts/install.sh`** — 把 skill 與 profiles symlink 到 pi 的發現位置。
+一個**自包含的 pi extension**，用於 [Herdr](https://herdr.dev) 與 [pi](https://github.com/earendil-works/pi) 的多 agent 協作。在 repo 目錄執行 `pi -e .` 即載入全部內容：
+
+- **`herdr_*` tools** — `herdr_layout`、`herdr_pane`、`herdr_agent`，衍生自 [pi-herdr](https://github.com/ogulcancelik/pi-herdr)（MIT © ogulcancelik），並調整了調用策略以配合本 repo 的 skill。
+- **`SKILL.md`** — 策略層。告訴 pi **何時**建議分派 subagent（並行探索、黑箱研究、上下文隔離）、**怎麼**跑標準工作流（split → start → prompt → 監督 → 關閉）、以及**怎麼用**下面的 profiles。這**不是** Herdr 官方 skill（以 CLI 為中心、opt-in）；這是本地重寫版。
+- **`agents/`** — 可重用的 subagent profiles（YAML frontmatter + system prompt body）。orchestrator 讀取 profile 後組裝 `herdr_agent start` 參數（`--model`、`-t`、`--append-system-prompt`）。
 
 ## 架構分工
 
 ```
-執行層    pi-herdr extension（第三方）：herdr_layout / herdr_pane / herdr_agent tools
-策略層    本 repo 的 SKILL.md：何時用、怎麼用這些 tools、subagent 工作流
-資產層    本 repo 的 agents/*.md：現成的 subagent profiles
+執行層    herdr_* tools（本 repo 內建，衍生自 pi-herdr）
+策略層    SKILL.md：何時用、怎麼用這些 tools、subagent 工作流
+資產層    agents/*.md：現成的 subagent profiles
 ```
 
-tools 來自 [pi-herdr](https://github.com/ogulcancelik/pi-herdr)（MIT，ogulcancelik）——透過結構化 tools 呼叫 `herdr` CLI。本 repo 只提供策略與 profiles，**不重寫 tools**。
-
-## 安裝
+## 載入
 
 ```bash
-# 1. Symlink skill，讓 pi 發現（name: herdr）
-ln -sfn "$PWD" ~/.agents/skills/herdr
-
-# 2. 安裝 pi-herdr extension（執行層）到 pi
-#    從 monorepo checkout 直接 symlink：
-ln -sfn /path/to/pi-herdr/packages/pi-herdr ~/.pi/agent/extensions/pi-herdr
-#    或用 npm：
-#    pi install npm:@ogulcancelik/pi-herdr
-
-# 3.（可選）symlink subagent profiles，給官方 pi subagent 工具用
-mkdir -p ~/.pi/agent/agents
-ln -sf "$PWD"/agents/*.md ~/.pi/agent/agents/
+# 在 repo 目錄執行：同時載入 tools + skill
+pi -e .
 ```
 
-或直接執行 `./scripts/install.sh`（涵蓋步驟 1 與 3）。
+extension 只在 `HERDR_ENV=1` 且 `HERDR_PANE_ID` 已設定（即 pi 跑在 Herdr 管理的 pane 內）時啟動，否則不載入任何東西，所以全域啟用也安全：
+
+```bash
+# 可選：在 settings.json 全域啟用
+# "extensions": ["/path/to/this/repo"]
+```
+
+若要給官方 pi subagent 工具安裝 profiles，可執行 `./scripts/install.sh`（把 `agents/*.md` symlink 到 `~/.pi/agent/agents/`）。這是選用的——skill 已說明 profile 格式，orchestrator 可直接從本 repo 讀取。
+
+## 開發
+
+```bash
+npm install
+bun test
+```
 
 ## 需求
 
 - pi 0.80+
 - Herdr 0.7.5+ 執行中，且 pi 跑在 Herdr 管理的 pane 內（`HERDR_ENV=1`）
-- 已安裝 pi-herdr extension（提供 `herdr_*` tools）
 
 ## 目錄結構
 
 ```
 .
+├── index.ts              # extension entry：註冊 herdr_* tools + SKILL.md 為 skill
+├── index.test.ts         # bun tests
+├── package.json          # pi.extensions -> ./index.ts
 ├── SKILL.md              # 策略層（何時/怎麼分派）
 ├── agents/               # subagent profiles（lit-searcher、code-reviewer、…）
-│   ├── lit-searcher.md
-│   └── code-reviewer.md
 ├── scripts/
-│   └── install.sh        # symlink skill + profiles 到 pi 位置
+│   └── install.sh        # 選用：symlink profiles 到 ~/.pi/agent/agents/
 ├── README.md
 └── README_zh.md
 ```
