@@ -30,31 +30,37 @@ description: "以 Herdr 為基礎的多 agent 協作策略層（herdr-with-pi）
 
 ## 版面配置慣例（layout）
 
-預設採用**左主右子**：orchestrator（主 agent）固定佔用左半邊，subagent 在右半邊平分畫面。
+預設採用**左主右子**：orchestrator（主 agent）**永遠佔整個畫面左半邊（50%）**，subagent 在右半邊**等分**排列（第一個最上方，依序向下）。
 
 ```
 ┌─────────┬──────────────┐
-│         │  subagent 1   │
+│         │  subagent 1   │  ← 右上
 │ 主 agent│───────────────│
-│ （左半） │  subagent 2   │
-│         │ （右半平分）   │
+│ （左半） │  subagent 2   │  ← 右中
+│         │───────────────│
+│         │  subagent 3   │  ← 右下
 └─────────┴──────────────┘
 ```
 
 開法（以主 agent 的 pane 為起點）：
 
-1. 第一次 split：`pane_split right`（在主 agent 右側產生第一個 subagent pane）
-2. 後續 split：都對**右半邊的 pane** 做 `pane_split down`（垂直平分右半），維持左主右子，不要把主 agent 切小
-3. subagent 增加時，右半邊持續垂直分割（3 個→三等分，依此類推）
+1. 第一次 split：`pane_split right`（在主 agent 右側產生第一個 subagent pane；主 agent 保持左半 50%）
+2. 之後**只對最新產生的右側 pane** 做 `pane_split down`，維持左主右子——**絕對不要再對主 agent 的 pane 做任何 split**
+3. 共有 N 個 subagent 時，第 k 次 down split（k = 1..N-1）要指定 `ratio = 1/(N-k+1)`（ratio 是 source pane 保留的比例，即上方 pane 佔剩餘區塊的比例），右半邊才會**等分**：
+   - N=2：`down(1/2)` → 右半上下各 1/2
+   - N=3：`down(1/3)`、`down(1/2)` → 右半上中下各 1/3
+   - N=4：`down(1/4)`、`down(1/3)`、`down(1/2)` → 右半四等分
 
 ```json
 // 例：3 個並行 subagent（pane = 主 agent 的 pane id）
-{ "action": "pane_split", "direction": "right", "focus": false }  // → sub1 pane
-{ "action": "pane_split", "pane": "<sub1>", "direction": "down", "focus": false }  // → sub2 pane
-{ "action": "pane_split", "pane": "<sub2>", "direction": "down", "focus": false }  // → sub3 pane
+{ "action": "pane_split", "direction": "right", "focus": false }                                  // → sub1（右上）
+{ "action": "pane_split", "pane": "<sub1>", "direction": "down", "ratio": 0.333, "focus": false }  // → sub2（右中，ratio = 1/3）
+{ "action": "pane_split", "pane": "<sub2>", "direction": "down", "ratio": 0.5, "focus": false }   // → sub3（右下，ratio = 1/2）
 ```
 
-注意：不要對主 agent 的 pane 做 horizontal split 把左半切小；避免同方向連續 split 把 pane 切太窄。
+注意：
+- 不要對主 agent 的 pane 做任何 split——左半 50% 永遠屬於主 agent；subagent 增加只影響右半邊
+- 對右半 pane 連續 down split 時**務必帶 ratio**，否則新 pane 會越切越小（實測 N=3 不帶 ratio 會得到 20/10/9 的不均等，不是三等分）
 
 ## 標準工作流
 
@@ -100,7 +106,8 @@ description: "以 Herdr 為基礎的多 agent 協作策略層（herdr-with-pi）
 ### 4. 收尾
 
 - orchestrator 親自驗證產出（讀 diff、跑測試），**統一 commit**（subagent 全程不碰 git）
-- `herdr_pane close <pane id>`：關閉**完成任務**的 subagent。不要關閉自己所在的 pane（tool 會拒絕）；不要關閉不是自己創建的 pane，除非使用者明確要求
+- **完工即關閉（預設）**：subagent 任務完成、orchestrator 讀取並驗證結果後，**立即 `herdr_pane close <pane id>` 關閉**，回收 pane 空間——**不要**保留已完成任務的 subagent，除非使用者明確要求保留（例如後續還要追問）
+- 不要關閉自己所在的 pane（tool 會拒絕）；不要關閉不是自己創建的 pane，除非使用者明確要求
 
 ## Subagent profiles（agents/ 目錄）
 

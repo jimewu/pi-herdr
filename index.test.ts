@@ -123,6 +123,56 @@ describe("pi-herdr", () => {
 		expect(result.details.pane.pane_id).toBe("w1:p2");
 	});
 
+	test("passes ratio through to split a specified pane evenly", async () => {
+		const calls: string[][] = [];
+		const splitPane = { ...currentPane, pane_id: "w1:p3", agent: undefined, agent_status: "unknown" };
+		const tools = registerTools((args) => {
+			calls.push(args);
+			if (args[0] === "pane" && args[1] === "current") return { type: "pane_current", pane: currentPane };
+			if (args[0] === "pane" && args[1] === "get") {
+				return { type: "pane_info", pane: { ...currentPane, pane_id: "w1:p2" } };
+			}
+			if (args[0] === "pane" && args[1] === "split") return { type: "pane_info", pane: splitPane };
+			throw new Error(`unexpected command: ${args.join(" ")}`);
+		});
+
+		const result = await tools.get("herdr_layout").execute(
+			"test",
+			{ action: "pane_split", pane: "w1:p2", direction: "down", ratio: 0.333 },
+			undefined,
+			undefined,
+			{},
+		);
+
+		expect(calls).toContainEqual(["pane", "get", "w1:p2"]);
+		expect(calls).toContainEqual([
+			"pane",
+			"split",
+			"w1:p2",
+			"--direction",
+			"down",
+			"--cwd",
+			"/repo",
+			"--ratio",
+			"0.333",
+			"--no-focus",
+		]);
+		expect(result.details.direction).toBe("down");
+	});
+
+	test("rejects ratio outside (0, 1)", async () => {
+		const tools = registerTools(() => ({}));
+		await expect(
+			tools.get("herdr_layout").execute(
+				"test",
+				{ action: "pane_split", ratio: 1.5 },
+				undefined,
+				undefined,
+				{},
+			),
+		).rejects.toThrow("ratio must be between 0 and 1");
+	});
+
 	test("waits for ordinary output through pane wait-output", async () => {
 		const calls: string[][] = [];
 		const tools = registerTools((args) => {

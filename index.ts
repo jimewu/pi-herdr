@@ -335,7 +335,7 @@ export default function (pi: ExtensionAPI) {
 		name: "herdr_layout",
 		label: "Herdr Layout",
 		description:
-			"Create and inspect Herdr terminal topology. Workspaces contain tabs; tabs contain panes. Creating a workspace or tab also creates a root pane, while splitting creates another pane. Layout actions never start an agent or ordinary command. Read pane IDs from results and pass them to herdr_pane or herdr_agent. Creation defaults to the caller's cwd and preserves UI focus. pane_split defaults to the caller's pane and chooses right or down from its geometry.",
+			"Create and inspect Herdr terminal topology. Workspaces contain tabs; tabs contain panes. Creating a workspace or tab also creates a root pane, while splitting creates another pane. Layout actions never start an agent or ordinary command. Read pane IDs from results and pass them to herdr_pane or herdr_agent. Creation defaults to the caller's cwd and preserves UI focus. pane_split defaults to the caller's pane and chooses right or down from its geometry. For equal division of the right column, pass ratio = 1/(N-k+1) on the k-th down split (e.g. 3 workers: first down 1/3, then 1/2).",
 		promptSnippet: "Inspect or create Herdr workspaces, tabs, and pane topology",
 		promptGuidelines: [
 			"Follow the herdr-with-pi skill (strategy layer) for when and how to delegate. It may suggest using these tools proactively when a task splits into independent subtasks, needs parallel exploration, or benefits from context isolation — but only act after the user agrees.",
@@ -365,6 +365,9 @@ export default function (pi: ExtensionAPI) {
 			),
 			label: Type.Optional(Type.String({ description: "Label for a new workspace or tab" })),
 			direction: Type.Optional(DirectionEnum),
+			ratio: Type.Optional(
+				Type.Number({ description: "Fraction of the source pane's area kept by the source pane after splitting (0 < ratio < 1). Defaults to 0.5 (even split). Passed through to `herdr pane split --ratio`. Use 1/(N-k+1) on the k-th down split to divide the right column into N equal rows." }),
+			),
 			cwd: Type.Optional(Type.String({ description: "Working directory. Defaults to the caller pane's foreground cwd." })),
 			focus: Type.Optional(Type.Boolean({ description: "Change UI focus after creation. Defaults to false." })),
 		}),
@@ -466,11 +469,15 @@ export default function (pi: ExtensionAPI) {
 					};
 				}
 				case "pane_split": {
+					if (params.ratio != null && (params.ratio <= 0 || params.ratio >= 1)) {
+						throw new Error(`ratio must be between 0 and 1, got ${params.ratio}`);
+					}
 					const current = await getCurrentPane(signal);
 					const source = params.pane ? await getPane(params.pane, signal) : current;
 					const direction = params.direction || chooseSplitDirection(await getPaneLayout(source.pane_id, signal), source.pane_id);
 					const cwd = params.cwd || source.foreground_cwd || source.cwd || current.foreground_cwd || current.cwd || process.cwd();
 					const args = ["pane", "split", source.pane_id, "--direction", direction, "--cwd", cwd];
+					if (params.ratio != null) args.push("--ratio", String(params.ratio));
 					args.push(params.focus === true ? "--focus" : "--no-focus");
 					const response = await execHerdrJson<{ result: { pane: PaneInfo } }>(args, signal);
 					const pane = response.result.pane;

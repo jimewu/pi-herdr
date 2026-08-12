@@ -20,7 +20,7 @@ asset layer         agents/*.md: ready-made subagent profiles
 
 ## Layout convention
 
-**Left-master, right-workers**: the orchestrator pane stays on the left half; subagents share the right half. First split right, then keep splitting the right-side panes down (they stay on the right and never shrink the master). See `SKILL.md` → *版面配置慣例* for the exact split sequence and JSON examples.
+**Left-master, right-workers**: the orchestrator pane always keeps the left half of the screen (50%); subagents divide the right half into equal rows (first at top, then downward). Split right once, then keep splitting the newest right-side pane down with `ratio = 1/(N-k+1)` on the k-th split so the right column stays evenly divided. Finished subagents are **closed by default** right after the orchestrator reads their results, unless the user asks to keep them. See `SKILL.md` → *版面配置慣例* for the exact split sequence and JSON examples.
 
 ## Load
 

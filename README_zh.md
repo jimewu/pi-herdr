@@ -20,7 +20,7 @@
 
 ## 版面配置慣例
 
-**左主右子**：orchestrator（主 agent）固定佔用左半邊，subagent 在右半邊平分畫面。第一次 `pane_split right`，之後都對右側 pane 做 `pane_split down`（不縮小主 agent）。詳細 split 序列與 JSON 範例見 `SKILL.md` → *版面配置慣例*。
+**左主右子**：orchestrator（主 agent）**永遠佔畫面左半邊（50%）**，subagent 在右半邊**等分**排列（第一個最上方、依序向下）。第一次 `pane_split right`，之後只對最新產生的右側 pane 做 `pane_split down`，並在第 k 次指定 `ratio = 1/(N-k+1)` 讓右半邊均分（絕不動主 agent）。完工的 subagent **預設立即關閉**（orchestrator 讀完結果後就 close），除非使用者要求保留。詳細 split 序列與 JSON 範例見 `SKILL.md` → *版面配置慣例*。
 
 ## 載入
 
