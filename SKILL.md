@@ -81,14 +81,19 @@ description: "以 Herdr 為基礎的多 agent 協作策略層。當任務可拆�
 ```markdown
 ---
 name: lit-searcher
+version: 0.1.0
 description: 文獻檢索助理（PubMed 等），擅長關鍵字策略反覆嘗試
 tools: read, bash
 model: model
+changelog: |
+  - 0.1.0: 初版建立。定義檢索品質標準與 output contract。
 ---
 （system prompt 內容）
 ```
 
-**用法**：orchestrator 讀取 profile → 用 frontmatter 的 `model` / `tools` / body 組裝 `herdr_agent start` 的 `agentArgs`（`--model`、`-t`、`--append-system-prompt`）→ 任務完成後把經驗寫回 profile（改版迭代）。
+欄位說明：`name` / `description` 為 pi subagent 格式必填；`tools` / `model` 為啟動時組裝參數用；`version`（semver）與 `changelog`（多行，**最近一版在最上面**，說明改版原因）為本 repo 的改版追蹤慣例，每次調整 profile 必須更新。
+
+**用法**：orchestrator 讀取 profile → 用 frontmatter 的 `model` / `tools` / body 組裝 `herdr_agent start` 的 `agentArgs`（`--model`、`-t`、`--append-system-prompt`）→ 任務完成後把經驗寫回 profile（改版迭代，記得更新 `version` 與 `changelog`）。
 
 ## 量身訂做參數（agentArgs，實測有效）
 

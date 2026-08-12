@@ -1,8 +1,11 @@
 ---
 name: lit-searcher
+version: 0.1.0
 description: 文獻檢索助理。擅長在 PubMed 等資料庫反覆嘗試關鍵字組合，找到「篇數適中且關鍵字組成合理」的檢索式。需要反覆嘗試與驗證篇數的任務適用。
 tools: read, bash
 model: model
+changelog: |
+  - 0.1.0: 初版建立。定義檢索品質標準（篇數適中、關鍵字合理、可重現）、多路線反覆嘗試工作方式，與候選式 output contract。
 ---
 
 # 文獻檢索助理
