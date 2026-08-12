@@ -174,29 +174,33 @@ git branch -D <agent-name>              # ④ 刪 branch
 
 ## Subagent model 選擇與 fallback
 
-subagent 啟動時用的 model 由 env 決定（**只影響 subagent，不影響 orchestrator 自己的 model**）：
+subagent 啟動時用的 model 由 env 變數決定（**只影響 subagent，不影響 orchestrator 自己的 model**）。**本 skill 一律讀取變數、不硬編碼具體模型**——變數由使用者在 `~/.profile` export（被 `~/.zshrc` source，新開的 pane 生效）：
 
-| env 變數（~/.profile） | 用途 | 本機預設值 |
-|---|---|---|
-| `PI_MODEL_DEFAULT` | 一般 subagent 預設 | `provider/model`（1M ctx） |
-| `PI_MODEL_FALLBACK_HIGH` | 品質優先 / 需長上下文（單一併發） | `provider/model`（1M ctx） |
-| `PI_MODEL_FALLBACK_BULK` | 大量並行、品質要求普通（8 併發） | `provider/model`（192K ctx） |
-
-**選用規則**（先依任務型別選，再談失敗 fallback）：
-
-| 任務型別 | 用 |
+| env 變數 | 用途 |
 |---|---|
-| 單一品質關鍵任務 / 需要 >192K context | `PI_MODEL_FALLBACK_HIGH`（1M ctx；**單一併發，多個並行會排隊**） |
-| 同時多個並行 subagent（批量） | `PI_MODEL_FALLBACK_BULK`（8 併發） |
-| 一般任務 | `PI_MODEL_DEFAULT` |
+| `PI_MODEL_DEFAULT` | 一般 subagent 的預設 model |
+| `PI_MODEL_FALLBACK_HIGH` | 品質優先 / 需長上下文的 model（通常單一併發） |
+| `PI_MODEL_FALLBACK_BULK` | 大量並行、品質要求普通的 model（通常多併發） |
 
-**失敗 fallback chain**：`start` 失敗或 subagent 因 provider 錯誤而 blocked 時，關掉該 pane、依序用下一個 model 重新 start：`DEFAULT → HIGH → BULK`。
+**啟動任何 subagent 前，一律先讀取變數**：
+
+```bash
+echo $PI_MODEL_DEFAULT $PI_MODEL_FALLBACK_HIGH $PI_MODEL_FALLBACK_BULK
+```
+
+任一變數未設定時：**停止分派並請使用者設定**（寫進 `~/.profile` 後重開 pane），不要自行猜測或硬編碼模型名稱。
+
+**選用規則（兩階段，順序不可顛倒）**：
+
+1. **`PI_MODEL_DEFAULT` 可用** → **一律只用 `PI_MODEL_DEFAULT`**，不考慮 fallback
+2. **僅當 `PI_MODEL_DEFAULT` 不可用**（`start` 失敗、provider 錯誤、subagent blocked、服務不可達）→ 依**任務類型與併發狀況**選：
+   - 單一品質關鍵任務 / 需要長上下文（超出 BULK 的 context 上限）→ `PI_MODEL_FALLBACK_HIGH`
+   - 大量並行 subagent / 品質要求普通 → `PI_MODEL_FALLBACK_BULK`（HIGH 若單一併發，並行全丟會排隊）
 
 注意：
-- 啟動前先 `echo $PI_MODEL_DEFAULT $PI_MODEL_FALLBACK_HIGH $PI_MODEL_FALLBACK_BULK` 讀取實際值；未設定時用上表預設值
-- `~/.profile` 被 `~/.zshrc` source，**只對新開的 pane 生效**——已開的 pane 要 `source ~/.profile` 或重開
-- bulk model（model）**輸出上限 8K tokens**：長文件/長報告任務不要派給它
-- `--model` 一律用完整 `provider/model` 格式（見「量身訂做參數」的 ⚠️ 警告）
+- `--model` 一律用完整 `provider/model` 格式（見「量身訂做參數」的 ⚠️ 警告）——env 值本身應存完整格式
+- 用 BULK 前先確認任務不超過該 model 的 context / 輸出上限（依環境實測）
+- `~/.profile` 只對**新開的 pane** 生效；已開的 pane 要 `source ~/.profile` 或重開
 
 ## Subagent profiles（agents/ 目錄）
 
@@ -208,16 +212,16 @@ name: lit-searcher
 version: 0.1.0
 description: 文獻檢索助理（PubMed 等），擅長關鍵字策略反覆嘗試
 tools: read, bash
-model: model
+model: <由 PI_MODEL_* env 選用，勿硬編碼>
 changelog: |
   - 0.1.0: 初版建立。定義檢索品質標準與 output contract。
 ---
 （system prompt 內容）
 ```
 
-欄位說明：`name` / `description` 為 pi subagent 格式必填；`tools` / `model` 為啟動時組裝參數用；`version`（semver）與 `changelog`（多行，**最近一版在最上面**，說明改版原因）為本 repo 的改版追蹤慣例，每次調整 profile 必須更新。
+欄位說明：`name` / `description` 為 pi subagent 格式必填；`tools` 為啟動時組裝參數用；`model` **可省略**——若填僅為提示，實際值一律由 orchestrator 依 `PI_MODEL_*` env 選用（見「Subagent model 選擇與 fallback」），**不得硬編碼具體模型**；`version`（semver）與 `changelog`（多行，**最近一版在最上面**，說明改版原因）為本 repo 的改版追蹤慣例，每次調整 profile 必須更新。
 
-**用法**：orchestrator 讀取 profile → 用 frontmatter 的 `model`（**存完整 `provider/model` 格式**）與 `tools` 組裝 `herdr_agent start` 的 `agentArgs`（`--model`、`-t`）；profile body 的 system prompt 內容透過 `prompt` 傳給 subagent（agentArgs 無法安全編碼多行字串）→ 任務完成後把經驗寫回 profile（改版迭代，記得更新 `version` 與 `changelog`）。
+**用法**：orchestrator 讀取 profile → 用 frontmatter 的 `tools` 組裝 `herdr_agent start` 的 `agentArgs`（`-t`）；`--model` 一律依 `PI_MODEL_*` env 選用（見「Subagent model 選擇與 fallback」）；profile body 的 system prompt 內容透過 `prompt` 傳給 subagent（agentArgs 無法安全編碼多行字串）→ 任務完成後把經驗寫回 profile（改版迭代，記得更新 `version` 與 `changelog`）。
 
 ## 量身訂做參數（agentArgs，實測有效）
 
@@ -234,7 +238,7 @@ changelog: |
 > ⚠️ **agentArgs 安全限制（實測踩過）**：`agentArgs` 必須能安全編碼給目標 shell——**多行字串、引號、特殊字元會讓 `start` 直接失敗**（`agent arguments cannot be encoded safely for the target shell`）。因此：
 > - agentArgs 只放單行、無特殊字元的參數（`-t read,bash`、`--model …`）
 > - **身份、任務規則、output contract 一律透過 `herdr_agent prompt` 傳遞**，不要塞進 agentArgs
-> - `--model` 必須用完整 `provider/model` 格式（如 `provider/model`）；只寫 `model` 在多家 provider 都認證時會因歧義啟動失敗
+> - `--model` 必須用完整 `provider/model` 格式（如 `some-provider/some-model`）；只寫 `model` 名稱在多家 provider 都認證時會因歧義啟動失敗
 
 ## 並行與安全規則
 

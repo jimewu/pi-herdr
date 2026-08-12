@@ -28,7 +28,7 @@
 
 ## Subagent model fallback
 
-subagent 用的 model 由 env 驅動（預設 `provider/model`；高品質/1M ctx 用 `provider/model`；批量 8 併發用 `provider/model`），從 `~/.profile` export。skill 依任務型別選 model，start 失敗時依 `DEFAULT → HIGH → BULK` 重試。只影響 subagent，不影響 orchestrator session。見 `SKILL.md` → *Subagent model 選擇與 fallback*。
+subagent 用的 model 由 env 驅動（`PI_MODEL_DEFAULT` / `PI_MODEL_FALLBACK_HIGH` / `PI_MODEL_FALLBACK_BULK`），從 `~/.profile` export——skill **不硬編碼具體模型**，一律讀取變數，未設定時請使用者設定。`PI_MODEL_DEFAULT` 可用時一律用它；僅當它不可用時才 fallback，依任務類型與併發在 HIGH（品質/長上下文）與 BULK（批量/並行）之間選。只影響 subagent，不影響 orchestrator session。見 `SKILL.md` → *Subagent model 選擇與 fallback*。
 
 ## 載入
 

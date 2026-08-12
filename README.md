@@ -28,7 +28,7 @@ In a git repo where parallel subagents actually edit files, each subagent works 
 
 ## Subagent model fallback
 
-Subagent models are driven by env vars (default `provider/model`; high-quality / 1M-ctx `provider/model`; bulk 8-concurrency `provider/model`), exported from `~/.profile`. The skill picks the model by task type and retries `DEFAULT → HIGH → BULK` on start failure. This only affects subagents, never the orchestrator session. See `SKILL.md` → *Subagent model 選擇與 fallback*.
+Subagent models are driven by env vars (`PI_MODEL_DEFAULT`, `PI_MODEL_FALLBACK_HIGH`, `PI_MODEL_FALLBACK_BULK`) exported from `~/.profile` — the skill never hardcodes concrete model ids; it always reads the vars and asks the user when they are unset. `PI_MODEL_DEFAULT` is used whenever available; only when it is unavailable does the skill fall back, choosing between HIGH (quality / long context) and BULK (parallel / bulk) based on task type and concurrency. This only affects subagents, never the orchestrator session. See `SKILL.md` → *Subagent model 選擇與 fallback*.
 
 ## Load
 

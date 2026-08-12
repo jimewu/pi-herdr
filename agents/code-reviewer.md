@@ -1,10 +1,11 @@
 ---
 name: code-reviewer
-version: 0.1.2
+version: 0.1.3
 description: 程式碼審查助理。讀取指定 repo / diff 並回報可行動的 findings。適合黑箱式 review（只要結論清單）。
 tools: read, bash
-model: provider/model
+model: <由 orchestrator 依 PI_MODEL_* env 選用，勿硬編碼>
 changelog: |
+  - 0.1.3: model 改為 env 驅動（不再硬編碼具體模型）——配合 SKILL.md 的「Subagent model 選擇與 fallback」，由 orchestrator 依 PI_MODEL_* 選用。
   - 0.1.2: 新增 branch diff 審查模式（git diff main...<branch>），並把 git 限制改為「只讀不寫」以配合 worktree 工作流。
   - 0.1.1: model 改為完整 provider/model（provider/model），避免多家 provider 歧義導致 start 失敗。
   - 0.1.0: 初版建立。定義審查重點（正確性、一致性、安全性、可維護性）、實測優先原則、只讀不改限制，與分級 findings output contract。
