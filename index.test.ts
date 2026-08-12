@@ -147,6 +147,26 @@ describe("pi-herdr", () => {
 		expect(result.content[0].text).toContain("server ready");
 	});
 
+	test("runs a command without requiring a JSON envelope (herdr pane run emits empty stdout)", async () => {
+		const calls: string[][] = [];
+		const tools = registerTools((args) => {
+			calls.push(args);
+			if (args[0] === "pane" && args[1] === "run") return ""; // herdr pane run: empty stdout, exit 0
+			throw new Error(`unexpected command: ${args.join(" ")}`);
+		});
+
+		const result = await tools.get("herdr_pane").execute(
+			"test",
+			{ action: "run", pane: "w1:p2", command: "echo hi" },
+			undefined,
+			undefined,
+			{},
+		);
+
+		expect(calls).toEqual([["pane", "run", "w1:p2", "echo hi"]]);
+		expect(result.content[0].text).toContain("Submitted command to pane w1:p2");
+	});
+
 	test("refuses to close the caller pane", async () => {
 		const tools = registerTools((args) => {
 			if (args[0] === "pane" && args[1] === "current") return { type: "pane_current", pane: currentPane };

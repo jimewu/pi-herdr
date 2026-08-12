@@ -1,11 +1,11 @@
 ---
-name: herdr
-description: "以 Herdr 為基礎的多 agent 協作策略層。當任務可拆成多個獨立子任務、需要並行探索（try & error）、只要結論不需過程、或想隔離高 token 消耗工作時，建議使用 Herdr 分派 subagent（透過 pi-herdr extension 的 herdr_layout / herdr_pane / herdr_agent tools）。需要 HERDR_ENV=1。"
+name: herdr-with-pi
+description: "以 Herdr 為基礎的多 agent 協作策略層（herdr-with-pi）。當任務可拆成多個獨立子任務、需要並行探索（try & error）、只要結論不需過程、或想隔離高 token 消耗工作時，建議使用 Herdr 分派 subagent（透過 pi-herdr extension 的 herdr_layout / herdr_pane / herdr_agent tools）。需要 HERDR_ENV=1。"
 ---
 
 # Herdr 多 agent 協作（策略層）
 
-本 skill 是 [pi-herdr](https://github.com/ogulcancelik/pi-herdr) extension（`herdr_layout` / `herdr_pane` / `herdr_agent` tools）的**策略層**：tools 提供執行能力，本 skill 說明**何時用、怎麼組合、以及 subagent 的分派方式**。兩者搭配使用。
+本 skill（herdr-with-pi）是 [pi-herdr](https://github.com/ogulcancelik/pi-herdr) extension（`herdr_layout` / `herdr_pane` / `herdr_agent` tools）的**策略層**：tools 提供執行能力，本 skill 說明**何時用、怎麼組合、以及 subagent 的分派方式**。兩者搭配使用。
 
 ## 執行前檢查
 
@@ -28,6 +28,34 @@ description: "以 Herdr 為基礎的多 agent 協作策略層。當任務可拆�
 - **需一致觀點**：一份文件的各章節要風格統一，難以乾淨切分
 - **精細決策**：重要判斷需 orchestrator 親自把關
 
+## 版面配置慣例（layout）
+
+預設採用**左主右子**：orchestrator（主 agent）固定佔用左半邊，subagent 在右半邊平分畫面。
+
+```
+┌─────────┬──────────────┐
+│         │  subagent 1   │
+│ 主 agent│───────────────│
+│ （左半） │  subagent 2   │
+│         │ （右半平分）   │
+└─────────┴──────────────┘
+```
+
+開法（以主 agent 的 pane 為起點）：
+
+1. 第一次 split：`pane_split right`（在主 agent 右側產生第一個 subagent pane）
+2. 後續 split：都對**右半邊的 pane** 做 `pane_split down`（垂直平分右半），維持左主右子，不要把主 agent 切小
+3. subagent 增加時，右半邊持續垂直分割（3 個→三等分，依此類推）
+
+```json
+// 例：3 個並行 subagent（pane = 主 agent 的 pane id）
+{ "action": "pane_split", "direction": "right", "focus": false }  // → sub1 pane
+{ "action": "pane_split", "pane": "<sub1>", "direction": "down", "focus": false }  // → sub2 pane
+{ "action": "pane_split", "pane": "<sub2>", "direction": "down", "focus": false }  // → sub3 pane
+```
+
+注意：不要對主 agent 的 pane 做 horizontal split 把左半切小；避免同方向連續 split 把 pane 切太窄。
+
 ## 標準工作流
 
 ```
@@ -47,16 +75,16 @@ description: "以 Herdr 為基礎的多 agent 協作策略層。當任務可拆�
 // herdr_layout：開 sibling pane（預設同 tab、同 cwd、不搶焦點）
 { "action": "pane_split", "cwd": "<caller cwd>", "focus": false }
 
-// herdr_agent：啟動 subagent。agentArgs 可量身訂做（見下節）
+// herdr_agent：啟動 subagent。agentArgs 只放單行安全參數（見「量身訂做參數」的 ⚠️ 警告）
 {
   "action": "start",
   "name": "<唯一小寫名>",
   "kind": "pi",
   "pane": "<新 pane id>",
-  "agentArgs": ["--append-system-prompt", "你的身份是…", "-t", "read,bash"]
+  "agentArgs": ["-t", "read,bash", "--model", "provider/model"]
 }
 
-// herdr_agent：派任務，等結果
+// herdr_agent：派任務，等結果。身份/規則/output contract 一律放這裡，不要塞 agentArgs
 { "action": "prompt", "target": "<name>", "prompt": "…", "wait": true, "timeout": 300000 }
 ```
 
@@ -93,7 +121,7 @@ changelog: |
 
 欄位說明：`name` / `description` 為 pi subagent 格式必填；`tools` / `model` 為啟動時組裝參數用；`version`（semver）與 `changelog`（多行，**最近一版在最上面**，說明改版原因）為本 repo 的改版追蹤慣例，每次調整 profile 必須更新。
 
-**用法**：orchestrator 讀取 profile → 用 frontmatter 的 `model` / `tools` / body 組裝 `herdr_agent start` 的 `agentArgs`（`--model`、`-t`、`--append-system-prompt`）→ 任務完成後把經驗寫回 profile（改版迭代，記得更新 `version` 與 `changelog`）。
+**用法**：orchestrator 讀取 profile → 用 frontmatter 的 `model`（**存完整 `provider/model` 格式**）與 `tools` 組裝 `herdr_agent start` 的 `agentArgs`（`--model`、`-t`）；profile body 的 system prompt 內容透過 `prompt` 傳給 subagent（agentArgs 無法安全編碼多行字串）→ 任務完成後把經驗寫回 profile（改版迭代，記得更新 `version` 與 `changelog`）。
 
 ## 量身訂做參數（agentArgs，實測有效）
 
@@ -106,6 +134,11 @@ changelog: |
 | `--model <pattern>` | 指定模型 |
 
 原則：subagent 只需要任務相關的工具與身份，**不要背多餘上下文**。
+
+> ⚠️ **agentArgs 安全限制（實測踩過）**：`agentArgs` 必須能安全編碼給目標 shell——**多行字串、引號、特殊字元會讓 `start` 直接失敗**（`agent arguments cannot be encoded safely for the target shell`）。因此：
+> - agentArgs 只放單行、無特殊字元的參數（`-t read,bash`、`--model …`）
+> - **身份、任務規則、output contract 一律透過 `herdr_agent prompt` 傳遞**，不要塞進 agentArgs
+> - `--model` 必須用完整 `provider/model` 格式（如 `provider/model`）；只寫 `model` 在多家 provider 都認證時會因歧義啟動失敗
 
 ## 並行與安全規則
 

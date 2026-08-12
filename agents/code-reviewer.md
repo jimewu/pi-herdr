@@ -1,10 +1,11 @@
 ---
 name: code-reviewer
-version: 0.1.0
+version: 0.1.1
 description: 程式碼審查助理。讀取指定 repo / diff 並回報可行動的 findings。適合黑箱式 review（只要結論清單）。
 tools: read, bash
-model: model
+model: provider/model
 changelog: |
+  - 0.1.1: model 改為完整 provider/model（provider/model），避免多家 provider 歧義導致 start 失敗。
   - 0.1.0: 初版建立。定義審查重點（正確性、一致性、安全性、可維護性）、實測優先原則、只讀不改限制，與分級 findings output contract。
 ---
 

@@ -338,7 +338,7 @@ export default function (pi: ExtensionAPI) {
 			"Create and inspect Herdr terminal topology. Workspaces contain tabs; tabs contain panes. Creating a workspace or tab also creates a root pane, while splitting creates another pane. Layout actions never start an agent or ordinary command. Read pane IDs from results and pass them to herdr_pane or herdr_agent. Creation defaults to the caller's cwd and preserves UI focus. pane_split defaults to the caller's pane and chooses right or down from its geometry.",
 		promptSnippet: "Inspect or create Herdr workspaces, tabs, and pane topology",
 		promptGuidelines: [
-			"Follow the herdr skill (strategy layer) for when and how to delegate. It may suggest using these tools proactively when a task splits into independent subtasks, needs parallel exploration, or benefits from context isolation — but only act after the user agrees.",
+			"Follow the herdr-with-pi skill (strategy layer) for when and how to delegate. It may suggest using these tools proactively when a task splits into independent subtasks, needs parallel exploration, or benefits from context isolation — but only act after the user agrees.",
 			"Use herdr_layout to create terminal topology before starting a process or agent. Default to a sibling pane in the caller's current tab and cwd; create a tab or workspace only when requested.",
 			"Read opaque workspace, tab, and pane IDs from herdr_layout results instead of constructing them, and preserve UI focus unless the user asks to switch context.",
 		],
@@ -529,7 +529,9 @@ export default function (pi: ExtensionAPI) {
 				}
 				case "run": {
 					if (!params.command) throw new Error("'command' is required for run");
-					await execHerdrJson(["pane", "run", params.pane, params.command], signal);
+					// herdr pane run does NOT emit a JSON envelope (stdout is empty, exit code only),
+					// so it must not go through execHerdrJson.
+					await execHerdr(["pane", "run", params.pane, params.command], signal);
 					return {
 						content: [{ type: "text", text: `Submitted command to pane ${params.pane}` }],
 						details: { action: "run", pane: params.pane, command: params.command },

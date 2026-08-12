@@ -1,4 +1,4 @@
-# pi-herdr 策略層（for pi）
+# herdr-with-pi 策略層（for pi）
 
 以 [Herdr](https://herdr.dev) 與 [pi](https://github.com/earendil-works/pi) 為基礎的**多 agent 協作策略層**：何時該分派 subagent、怎麼組合 Herdr tools、以及現成的 subagent profiles。
 
@@ -7,16 +7,20 @@
 一個**自包含的 pi extension**，用於 [Herdr](https://herdr.dev) 與 [pi](https://github.com/earendil-works/pi) 的多 agent 協作。在 repo 目錄執行 `pi -e .` 即載入全部內容：
 
 - **`herdr_*` tools** — `herdr_layout`、`herdr_pane`、`herdr_agent`，衍生自 [pi-herdr](https://github.com/ogulcancelik/pi-herdr)（MIT © ogulcancelik），並調整了調用策略以配合本 repo 的 skill。
-- **`SKILL.md`** — 策略層。告訴 pi **何時**建議分派 subagent（並行探索、黑箱研究、上下文隔離）、**怎麼**跑標準工作流（split → start → prompt → 監督 → 關閉）、以及**怎麼用**下面的 profiles。這**不是** Herdr 官方 skill（以 CLI 為中心、opt-in）；這是本地重寫版。
+- **`SKILL.md`** — **herdr-with-pi** 策略層。告訴 pi **何時**建議分派 subagent（並行探索、黑箱研究、上下文隔離）、**怎麼**跑標準工作流（split → start → prompt → 監督 → 關閉）、以及**怎麼用**下面的 profiles。這**不是** Herdr 官方 skill（以 CLI 為中心、opt-in）；這是本地重寫版。
 - **`agents/`** — 可重用的 subagent profiles（YAML frontmatter + system prompt body）。orchestrator 讀取 profile 後組裝 `herdr_agent start` 參數（`--model`、`-t`、`--append-system-prompt`）。
 
 ## 架構分工
 
 ```
 執行層    herdr_* tools（本 repo 內建，衍生自 pi-herdr）
-策略層    SKILL.md：何時用、怎麼用這些 tools、subagent 工作流
+策略層    herdr-with-pi（SKILL.md）：何時用、怎麼用這些 tools、subagent 工作流
 資產層    agents/*.md：現成的 subagent profiles
 ```
+
+## 版面配置慣例
+
+**左主右子**：orchestrator（主 agent）固定佔用左半邊，subagent 在右半邊平分畫面。第一次 `pane_split right`，之後都對右側 pane 做 `pane_split down`（不縮小主 agent）。詳細 split 序列與 JSON 範例見 `SKILL.md` → *版面配置慣例*。
 
 ## 載入
 

@@ -1,4 +1,4 @@
-# pi-herdr strategy layer for pi
+# herdr-with-pi strategy layer for pi
 
 The **strategy layer** for multi-agent orchestration with [Herdr](https://herdr.dev) and [pi](https://github.com/earendil-works/pi): when to delegate to subagents, how to combine the Herdr tools, and ready-made subagent profiles.
 
@@ -7,16 +7,20 @@ The **strategy layer** for multi-agent orchestration with [Herdr](https://herdr.
 A **self-contained pi extension** for multi-agent orchestration with [Herdr](https://herdr.dev) and [pi](https://github.com/earendil-works/pi). `pi -e .` from this directory loads everything:
 
 - **`herdr_*` tools** — `herdr_layout`, `herdr_pane`, `herdr_agent`, derived from [pi-herdr](https://github.com/ogulcancelik/pi-herdr) (MIT © ogulcancelik), adapted so the invocation policy follows this repo's skill.
-- **`SKILL.md`** — the strategy layer. It tells pi *when* to suggest delegating to subagents (parallel exploration, black-box research, context isolation), *how* to run the standard workflow (split → start → prompt → supervise → close), and *how* to use the profiles below. This is **not** the upstream Herdr skill (CLI-focused, opt-in); it is a local rewrite.
+- **`SKILL.md`** — the **herdr-with-pi** strategy layer. It tells pi *when* to suggest delegating to subagents (parallel exploration, black-box research, context isolation), *how* to run the standard workflow (split → start → prompt → supervise → close), and *how* to use the profiles below. This is **not** the upstream Herdr skill (CLI-focused, opt-in); it is a local rewrite.
 - **`agents/`** — reusable subagent profiles (YAML frontmatter + system-prompt body). Orchestrator reads a profile and assembles `herdr_agent start` args (`--model`, `-t`, `--append-system-prompt`) from it.
 
 ## How it fits together
 
 ```
 execution layer     herdr_* tools (in this repo, derived from pi-herdr)
-strategy layer      SKILL.md: when & how to use those tools, subagent workflow
+strategy layer      herdr-with-pi (SKILL.md): when & how to use those tools, subagent workflow
 asset layer         agents/*.md: ready-made subagent profiles
 ```
+
+## Layout convention
+
+**Left-master, right-workers**: the orchestrator pane stays on the left half; subagents share the right half. First split right, then keep splitting the right-side panes down (they stay on the right and never shrink the master). See `SKILL.md` → *版面配置慣例* for the exact split sequence and JSON examples.
 
 ## Load
 

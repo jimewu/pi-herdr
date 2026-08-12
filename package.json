@@ -1,12 +1,13 @@
 {
-  "name": "pi-herdr-strategy",
+  "name": "herdr-with-pi",
   "version": "0.1.0",
-  "description": "Strategy layer for multi-agent orchestration with Herdr: herdr_* tools (derived from @ogulcancelik/pi-herdr) plus the herdr skill and subagent profiles. `pi -e .` from this directory loads tools + skill.",
+  "description": "herdr-with-pi: strategy layer for multi-agent orchestration with Herdr — herdr_* tools (derived from @ogulcancelik/pi-herdr) plus the herdr-with-pi skill and subagent profiles. `pi -e .` from this directory loads tools + skill.",
   "type": "module",
   "license": "MIT",
   "keywords": [
     "pi-extension",
     "herdr",
+    "herdr-with-pi",
     "subagent",
     "multi-agent",
     "delegation"
