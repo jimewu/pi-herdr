@@ -11,6 +11,7 @@ description: "以 Herdr 為基礎的多 agent 協作策略層（herdr-with-pi）
 
 - `HERDR_ENV=1`：確認自己跑在 Herdr 管理的 pane 內。若否，停止。
 - `herdr_agent list`：確認現有 agent 狀態，避免名稱衝突、重複啟動。
+- **版面模式**：預設 tab 模式（每 agent 一 tab）；只有使用者明確指定時才用 pane 模式（見「版面配置慣例」）
 - git repo 內要派 subagent 改檔前：確認 main checkout 乾淨（`git status`），並先想好 worktree 目錄
 
 ## 何時**建議**分派 subagent（主動提出，不等使用者開口）
@@ -31,7 +32,28 @@ description: "以 Herdr 為基礎的多 agent 協作策略層（herdr-with-pi）
 
 ## 版面配置慣例（layout）
 
-預設採用**左主右子**：orchestrator（主 agent）**永遠佔整個畫面左半邊（50%）**，subagent 在右半邊**等分**排列（第一個最上方，依序向下）。
+**預設採用 tab 模式**：每個 agent（main + 每個 subagent）都在**同一個 workspace 下各自的 tab**。只有使用者**明確指定**要 pane 模式時，才改用「左主右子」分割。**agent 不自行偵測畫面大小**——選哪種模式由使用者決定。
+
+### 模式 A：tab 模式（預設）
+
+- main agent 留在自己原本的 tab；每個 subagent 用 `tab_create` 開新 tab（`label` 用 agent 名），該 tab 的 root pane 就是 subagent 的 pane
+- 畫面永遠只顯示一個 pane（切 tab 監看），小螢幕不會因為 pane 切割而擠爆；不需要 split / ratio
+- 並行 N 個 subagent = 開 N 個 tab（連同 main agent 共 N+1 個 tab）
+
+```json
+// 例：2 個並行 subagent（workspace = 主 agent 所在的 workspace id）
+{ "action": "tab_create", "workspace": "<ws>", "label": "demo-sub-1", "focus": false }  // → root pane <p1>
+{ "action": "tab_create", "workspace": "<ws>", "label": "demo-sub-2", "focus": false }  // → root pane <p2>
+// 之後在 <p1> / <p2> 上 herdr_agent start 啟動各 subagent
+```
+
+注意：
+- tab id / pane id 一律從 `tab_create` 回傳結果讀取，不要自行推斷
+- `tab_create` 預設同 cwd、不搶焦點；需要指定 cwd（如 worktree）時傳 `cwd`
+
+### 模式 B：pane 模式（僅在使用者明確指定時使用）
+
+左主右子：orchestrator（主 agent）**永遠佔整個畫面左半邊（50%）**，subagent 在右半邊**等分**排列（第一個最上方，依序向下）。
 
 ```
 ┌─────────┬──────────────┐
@@ -73,21 +95,22 @@ description: "以 Herdr 為基礎的多 agent 協作策略層（herdr-with-pi）
 
 ```json
 { "action": "list" }                              // herdr_agent：現況
-{ "action": "pane_layout", "pane": "<caller>" }   // herdr_layout：決定 split 方向
+{ "action": "current" }                           // herdr_layout：確認目前 workspace（tab 模式開 tab 要用）
 ```
 
 ### 2. 分派
 
 ```json
-// herdr_layout：開 sibling pane（預設同 tab、同 cwd、不搶焦點）
-{ "action": "pane_split", "cwd": "<caller cwd>", "focus": false }
+// herdr_layout：開新 tab 給 subagent（預設 tab 模式；同 workspace、同 cwd、不搶焦點）
+{ "action": "tab_create", "workspace": "<主 agent 所在 workspace>", "label": "<agent 名>", "focus": false }
+// ↑ 回傳的 root pane 即 subagent 的 pane
 
 // herdr_agent：啟動 subagent。agentArgs 只放單行安全參數（見「量身訂做參數」的 ⚠️ 警告）
 {
   "action": "start",
   "name": "<唯一小寫名>",
   "kind": "pi",
-  "pane": "<新 pane id>",
+  "pane": "<新 tab 的 root pane id>",
   // model 依 PI_MODEL_* env 選用（見「Subagent model 選擇與 fallback」），啟動前先讀實際值
   "agentArgs": ["-t", "read,bash", "--model", "<依任務型別選出的 provider/model>"]
 }
@@ -95,6 +118,8 @@ description: "以 Herdr 為基礎的多 agent 協作策略層（herdr-with-pi）
 // herdr_agent：派任務，等結果。身份/規則/output contract 一律放這裡，不要塞 agentArgs
 { "action": "prompt", "target": "<name>", "prompt": "…", "wait": true, "timeout": 300000 }
 ```
+
+> 使用者明確指定 pane 模式時，才改為 `pane_split` 開 sibling pane（見「版面配置慣例」模式 B）。
 
 **分派並行任務**：一次同時送出多個 prompt（各自不同任務），並行 wait。
 
@@ -108,7 +133,7 @@ description: "以 Herdr 為基礎的多 agent 協作策略層（herdr-with-pi）
 ### 4. 收尾
 
 - orchestrator 親自驗證產出（讀 diff、跑測試）。git repo 內改 code 的任務走 **worktree 工作流**（見下節）：review 通過才 merge，然後**關 pane + 刪 worktree & branch**；不走 worktree 的小任務由 orchestrator **統一 commit**（subagent 不碰 git）
-- **完工即關閉（預設）**：subagent 任務完成、orchestrator 讀取並驗證結果後，**立即 `herdr_pane close <pane id>` 關閉**，回收 pane 空間——**不要**保留已完成任務的 subagent，除非使用者明確要求保留（例如後續還要追問）
+- **完工即關閉（預設）**：subagent 任務完成、orchestrator 讀取並驗證結果後，**立即 `herdr_pane close <pane id>` 關閉**，回收 pane 空間（tab 模式下關閉該 tab 的 root pane 即可，tab 留空無妨）——**不要**保留已完成任務的 subagent，除非使用者明確要求保留（例如後續還要追問）
 - 不要關閉自己所在的 pane（tool 會拒絕）；不要關閉不是自己創建的 pane，除非使用者明確要求
 
 ## Git repo 並行開發：worktree 工作流
@@ -133,7 +158,9 @@ git worktree add <repo>/.herdr-wt/<agent-name> -b <agent-name> main
 ### 分派：pane 開在 worktree 內
 
 ```json
-{ "action": "pane_split", "cwd": "<repo>/.herdr-wt/<agent-name>", "focus": false }
+// 預設 tab 模式：開新 tab，cwd 指向 worktree
+{ "action": "tab_create", "workspace": "<ws>", "label": "<agent-name>", "cwd": "<repo>/.herdr-wt/<agent-name>", "focus": false }
+// 使用者指定 pane 模式時才改為：{ "action": "pane_split", "cwd": "<repo>/.herdr-wt/<agent-name>", "focus": false }
 ```
 
 subagent 的 cwd 就是它的 worktree，pane 與 branch 一一對應。
@@ -246,7 +273,7 @@ changelog: |
 - **git 規則分兩種模式**：
   - **worktree 模式**（git repo 並行改檔）：subagent 只能在自己的 branch/worktree 內 commit；禁止碰 main、其他 branch、`git push` 與 `git worktree` 管理指令
   - **無 worktree 模式**（小任務、非 git repo）：subagent 一律禁止 git 操作，由 orchestrator 統一 commit
-- **資源**：並行數量受 pane 空間與機器負載限制；避免同方向連續 split 造成太窄
+- **資源**：tab 模式（預設）下並行數量受機器負載與 tab 數限制，不受畫面大小影響；pane 模式下受 pane 空間限制，避免同方向連續 split 造成太窄
 - **不依賴另一個 client 的焦點 pane**：一律用 `--current`、明確 pane id、或唯一 agent 名稱
 - **ID 不猜測**：從 tools 回傳的 JSON 讀取 opaque ID（workspace/tab/pane），不要自行推斷
 

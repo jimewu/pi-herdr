@@ -7,7 +7,7 @@
 一個**自包含的 pi extension**，用於 [Herdr](https://herdr.dev) 與 [pi](https://github.com/earendil-works/pi) 的多 agent 協作。在 repo 目錄執行 `pi -e .` 即載入全部內容：
 
 - **`herdr_*` tools** — `herdr_layout`、`herdr_pane`、`herdr_agent`，衍生自 [pi-herdr](https://github.com/ogulcancelik/pi-herdr)（MIT © ogulcancelik），並調整了調用策略以配合本 repo 的 skill。
-- **`SKILL.md`** — **herdr-with-pi** 策略層。告訴 pi **何時**建議分派 subagent（並行探索、黑箱研究、上下文隔離）、**怎麼**跑標準工作流（split → start → prompt → 監督 → 關閉）、以及**怎麼用**下面的 profiles。這**不是** Herdr 官方 skill（以 CLI 為中心、opt-in）；這是本地重寫版。
+- **`SKILL.md`** — **herdr-with-pi** 策略層。告訴 pi **何時**建議分派 subagent（並行探索、黑箱研究、上下文隔離）、**怎麼**跑標準工作流（開 tab → start → prompt → 監督 → 關閉）、以及**怎麼用**下面的 profiles。這**不是** Herdr 官方 skill（以 CLI 為中心、opt-in）；這是本地重寫版。
 - **`agents/`** — 可重用的 subagent profiles（YAML frontmatter + system prompt body）。orchestrator 讀取 profile 後組裝 `herdr_agent start` 參數（`--model`、`-t`、`--append-system-prompt`）。
 
 ## 架構分工
@@ -20,7 +20,7 @@
 
 ## 版面配置慣例
 
-**左主右子**：orchestrator（主 agent）**永遠佔畫面左半邊（50%）**，subagent 在右半邊**等分**排列（第一個最上方、依序向下）。第一次 `pane_split right`，之後只對最新產生的右側 pane 做 `pane_split down`，並在第 k 次指定 `ratio = 1/(N-k+1)` 讓右半邊均分（絕不動主 agent）。完工的 subagent **預設立即關閉**（orchestrator 讀完結果後就 close），除非使用者要求保留。詳細 split 序列與 JSON 範例見 `SKILL.md` → *版面配置慣例*。
+**預設採用 tab 模式**：每個 agent（main + 每個 subagent）都在**同一個 workspace 下各自的 tab**。main agent 留在原本的 tab；每個 subagent 用 `tab_create` 開新 tab（label = agent 名），該 tab 的 root pane 即 subagent 的 pane。畫面永遠只顯示一個 pane（切 tab 監看），小螢幕不會因為 pane 切割而擠爆，也不需要 split / ratio。只有使用者**明確指定**時才改為 **pane 模式（左主右子）**：orchestrator 佔畫面左半 50%，subagent 在右半邊等分——第一次 `pane_split right`，之後只對右側 pane 做 `pane_split down`，並在第 k 次指定 `ratio = 1/(N-k+1)`（絕不動主 agent）。**agent 不自行偵測畫面大小**，由使用者決定模式。完工的 subagent **預設立即關閉**（orchestrator 讀完結果後就 close），除非使用者要求保留。詳細序列與 JSON 範例見 `SKILL.md` → *版面配置慣例*。
 
 ## Git worktree 工作流
 

@@ -7,7 +7,7 @@ The **strategy layer** for multi-agent orchestration with [Herdr](https://herdr.
 A **self-contained pi extension** for multi-agent orchestration with [Herdr](https://herdr.dev) and [pi](https://github.com/earendil-works/pi). `pi -e .` from this directory loads everything:
 
 - **`herdr_*` tools** — `herdr_layout`, `herdr_pane`, `herdr_agent`, derived from [pi-herdr](https://github.com/ogulcancelik/pi-herdr) (MIT © ogulcancelik), adapted so the invocation policy follows this repo's skill.
-- **`SKILL.md`** — the **herdr-with-pi** strategy layer. It tells pi *when* to suggest delegating to subagents (parallel exploration, black-box research, context isolation), *how* to run the standard workflow (split → start → prompt → supervise → close), and *how* to use the profiles below. This is **not** the upstream Herdr skill (CLI-focused, opt-in); it is a local rewrite.
+- **`SKILL.md`** — the **herdr-with-pi** strategy layer. It tells pi *when* to suggest delegating to subagents (parallel exploration, black-box research, context isolation), *how* to run the standard workflow (tab → start → prompt → supervise → close), and *how* to use the profiles below. This is **not** the upstream Herdr skill (CLI-focused, opt-in); it is a local rewrite.
 - **`agents/`** — reusable subagent profiles (YAML frontmatter + system-prompt body). Orchestrator reads a profile and assembles `herdr_agent start` args (`--model`, `-t`, `--append-system-prompt`) from it.
 
 ## How it fits together
@@ -20,7 +20,7 @@ asset layer         agents/*.md: ready-made subagent profiles
 
 ## Layout convention
 
-**Left-master, right-workers**: the orchestrator pane always keeps the left half of the screen (50%); subagents divide the right half into equal rows (first at top, then downward). Split right once, then keep splitting the newest right-side pane down with `ratio = 1/(N-k+1)` on the k-th split so the right column stays evenly divided. Finished subagents are **closed by default** right after the orchestrator reads their results, unless the user asks to keep them. See `SKILL.md` → *版面配置慣例* for the exact split sequence and JSON examples.
+**Tab mode by default**: every agent (main + each subagent) lives in its own tab under the same workspace. The orchestrator stays in its original tab; each subagent gets a new tab via `tab_create` (label = agent name) whose root pane is the subagent's pane. The screen always shows a single pane — you monitor by switching tabs, so small screens are never squeezed by panes and no split/ratio is needed. Only when the user **explicitly asks** does the layout switch to **pane mode** (left-master, right-workers): the orchestrator keeps the left half (50%) and subagents divide the right half into equal rows via one `pane_split right` followed by `pane_split down` with `ratio = 1/(N-k+1)` on the k-th split. Agents never auto-detect screen size — the user decides the mode. Finished subagents are **closed by default** right after the orchestrator reads their results, unless the user asks to keep them. See `SKILL.md` → *版面配置慣例* for the exact sequences and JSON examples.
 
 ## Git worktree workflow
 
