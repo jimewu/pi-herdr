@@ -429,7 +429,7 @@ describe("herdr_profile (use-or-create)", () => {
 	});
 
 	test("lists this repo's built-in profiles", () => {
-		const manager = createProfileManager(join(import.meta.dir, "agents"));
+		const manager = createProfileManager(join(import.meta.dir, "..", "agents"));
 		const names = manager.list().map((p) => p.name);
 		expect(names).toContain("lit-searcher");
 		expect(names).toContain("code-reviewer");

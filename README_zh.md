@@ -9,7 +9,7 @@
 一個**自包含的 pi extension**，用於 [Herdr](https://herdr.dev) 與 [pi](https://github.com/earendil-works/pi) 的多 agent 協作。在 repo 目錄執行 `pi -e .` 即載入全部內容：
 
 - **`herdr_*` tools** — `herdr_layout`、`herdr_pane`、`herdr_agent`，衍生自 [pi-herdr](https://github.com/ogulcancelik/pi-herdr)（MIT © ogulcancelik），並調整了調用策略以配合本 repo 的 skill；另有 `herdr_profile` 負責列出/讀取/建立 `agents/` 裡的 subagent profiles。
-- **`SKILL.md`** — **herdr-with-pi** 策略層。告訴 pi **何時**建議分派 subagent（並行探索、黑箱研究、上下文隔離）、**怎麼**跑標準工作流（開 tab → start → prompt → 監督 → 關閉）、以及**怎麼用**下面的 profiles。這**不是** Herdr 官方 skill（以 CLI 為中心、opt-in）；這是本地重寫版。
+- **`skills/herdr-with-pi/SKILL.md`** — **herdr-with-pi** 策略層。告訴 pi **何時**建議分派 subagent（並行探索、黑箱研究、上下文隔離）、**怎麼**跑標準工作流（開 tab → start → prompt → 監督 → 關閉）、以及**怎麼用**下面的 profiles。這**不是** Herdr 官方 skill（以 CLI 為中心、opt-in）；這是本地重寫版。
 - **`agents/`** — 可重用的 subagent profiles（YAML frontmatter + system prompt body）。spawn 前 orchestrator 會先透過 `herdr_profile list` 檢查 `agents/`：既有 profile **只有在完全適用時**（領域/語言/職責/工具全部吻合）才直接沿用，否則用 `herdr_profile create` 依需求建立新 profile，之後成為資產供同型別任務使用。
 
 ## 架構分工
@@ -39,6 +39,8 @@ subagent 用的 model 由 env 驅動（`PI_MODEL_DEFAULT` / `PI_MODEL_FALLBACK_H
 pi -e .
 ```
 
+`package.json` 的 `pi` manifest 將 `extensions` 指向 `./extensions`（`herdr_*` + `herdr_profile` tools）、`skills` 指向 `./skills`（`herdr-with-pi` skill），因此在 repo 根目錄執行 `pi -e .` 兩者都會載入。extension 也會透過 `resources_discover` 註冊 skill，所以即使只 `pi -e ./extensions/index.ts` 也能讓 skill 被發現。
+
 extension 只在 `HERDR_ENV=1` 且 `HERDR_PANE_ID` 已設定（即 pi 跑在 Herdr 管理的 pane 內）時啟動，否則不載入任何東西，所以全域啟用也安全：
 
 ```bash
@@ -64,13 +66,16 @@ bun test
 
 ```
 .
-├── index.ts              # extension entry：註冊 herdr_* tools + SKILL.md 為 skill
-├── index.test.ts         # bun tests
-├── package.json          # pi.extensions -> ./index.ts
-├── SKILL.md              # 策略層（何時/怎麼分派）
-├── agents/               # subagent profiles（lit-searcher、code-reviewer、…）
+├── extensions/       # pi extension：herdr_* tools + herdr_profile + skill 註冊
+│   ├── index.ts      #   extension entry（註冊 tools；將 SKILL.md 註冊為 skill）
+│   └── index.test.ts #   bun tests（tools 與 profile 用 or 建邏輯）
+├── skills/
+│   └── herdr-with-pi/
+│       └── SKILL.md  # 策略層（何時/怎麼分派）
+├── agents/           # subagent profiles（lit-searcher、code-reviewer、…）
 ├── scripts/
-│   └── install.sh        # 選用：symlink profiles 到 ~/.pi/agent/agents/
+│   └── install.sh    # 選用：symlink profiles 到 ~/.pi/agent/agents/
+├── package.json      # pi.extensions -> ./extensions，pi.skills -> ./skills
 ├── README.md
 └── README_zh.md
 ```

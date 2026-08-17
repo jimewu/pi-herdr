@@ -9,7 +9,7 @@ The **strategy layer** for multi-agent orchestration with [Herdr](https://herdr.
 A **self-contained pi extension** for multi-agent orchestration with [Herdr](https://herdr.dev) and [pi](https://github.com/earendil-works/pi). `pi -e .` from this directory loads everything:
 
 - **`herdr_*` tools** — `herdr_layout`, `herdr_pane`, `herdr_agent`, derived from [pi-herdr](https://github.com/ogulcancelik/pi-herdr) (MIT © ogulcancelik), adapted so the invocation policy follows this repo's skill; plus `herdr_profile` to list/read/create subagent profiles in `agents/`.
-- **`SKILL.md`** — the **herdr-with-pi** strategy layer. It tells pi *when* to suggest delegating to subagents (parallel exploration, black-box research, context isolation), *how* to run the standard workflow (tab → start → prompt → supervise → close), and *how* to use the profiles below. This is **not** the upstream Herdr skill (CLI-focused, opt-in); it is a local rewrite.
+- **`skills/herdr-with-pi/SKILL.md`** — the **herdr-with-pi** strategy layer. It tells pi *when* to suggest delegating to subagents (parallel exploration, black-box research, context isolation), *how* to run the standard workflow (tab → start → prompt → supervise → close), and *how* to use the profiles below. This is **not** the upstream Herdr skill (CLI-focused, opt-in); it is a local rewrite.
 - **`agents/`** — reusable subagent profiles (YAML frontmatter + system-prompt body). Before spawning, the orchestrator checks `agents/` via `herdr_profile list`: an existing profile is reused only when it is *exactly* fit (domain/language/responsibility/tools all match); otherwise a new profile is created with `herdr_profile create` and becomes an asset for later tasks.
 
 ## How it fits together
@@ -39,6 +39,8 @@ Subagent models are driven by env vars (`PI_MODEL_DEFAULT`, `PI_MODEL_FALLBACK_H
 pi -e .
 ```
 
+The `package.json` `pi` manifest points `extensions` at `./extensions` (the `herdr_*` + `herdr_profile` tools) and `skills` at `./skills` (the `herdr-with-pi` skill), so `pi -e .` from the repo root loads both. The extension also registers the skill via `resources_discover` so a bare `pi -e ./extensions/index.ts` keeps the skill discoverable.
+
 The extension activates only when `HERDR_ENV=1` and `HERDR_PANE_ID` are set (i.e. pi running inside a Herdr-managed pane). Otherwise it loads nothing, so it is safe to enable globally:
 
 ```bash
@@ -64,13 +66,16 @@ bun test
 
 ```
 .
-├── index.ts              # extension entry: registers herdr_* tools + SKILL.md as skill
-├── index.test.ts         # bun tests for the tools
-├── package.json          # pi.extensions -> ./index.ts
-├── SKILL.md              # strategy layer (when/how to delegate)
-├── agents/               # subagent profiles (lit-searcher, code-reviewer, …)
+├── extensions/       # pi extension: herdr_* tools + herdr_profile + skill registration
+│   ├── index.ts      #   extension entry (registers tools; discovers SKILL.md as skill)
+│   └── index.test.ts #   bun tests for the tools and profile use-or-create logic
+├── skills/
+│   └── herdr-with-pi/
+│       └── SKILL.md  # strategy layer (when/how to delegate)
+├── agents/           # subagent profiles (lit-searcher, code-reviewer, …)
 ├── scripts/
-│   └── install.sh        # optional: symlink profiles into ~/.pi/agent/agents/
+│   └── install.sh    # optional: symlink profiles into ~/.pi/agent/agents/
+├── package.json      # pi.extensions -> ./extensions, pi.skills -> ./skills
 ├── README.md
 └── README_zh.md
 ```

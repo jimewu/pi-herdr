@@ -22,6 +22,10 @@ import { Type } from "typebox";
  */
 
 const extensionDir = dirname(fileURLToPath(import.meta.url));
+// Repo layout: extensions/ (this file), skills/herdr-with-pi/, agents/, …
+const repoRoot = dirname(extensionDir);
+const skillPath = join(repoRoot, "skills", "herdr-with-pi", "SKILL.md");
+const profileManagerDir = join(repoRoot, "agents");
 
 type AgentStatus = "idle" | "working" | "blocked" | "done" | "unknown";
 type ReadSource = "visible" | "recent" | "recent-unwrapped" | "detection";
@@ -381,11 +385,11 @@ export default function (pi: ExtensionAPI) {
 	// Make this repo's SKILL.md (strategy layer) discoverable as a skill.
 	pi.on("resources_discover", () => {
 		return {
-			skillPaths: [join(extensionDir, "SKILL.md")],
+			skillPaths: [skillPath],
 		};
 	});
 
-	const profileManager = createProfileManager(join(extensionDir, "agents"));
+	const profileManager = createProfileManager(profileManagerDir);
 
 	async function execHerdr(args: string[], signal?: AbortSignal) {
 		const result = await pi.exec("herdr", args, { signal });

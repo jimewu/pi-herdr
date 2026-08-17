@@ -30,13 +30,12 @@
     "test": "bun test"
   },
   "pi": {
-    "extensions": [
-      "./index.ts"
-    ]
+    "extensions": ["./extensions"],
+    "skills": ["./skills"]
   },
   "files": [
-    "index.ts",
-    "SKILL.md",
+    "extensions/",
+    "skills/",
     "agents/",
     "README.md",
     "README_zh.md"
