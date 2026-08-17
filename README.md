@@ -30,14 +30,14 @@ In a git repo where parallel subagents actually edit files, each subagent works 
 
 ## Subagent model fallback
 
-Subagent models are driven by env vars (`PI_MODEL_DEFAULT`, `PI_MODEL_FALLBACK_HIGH`, `PI_MODEL_FALLBACK_BULK`) exported from `~/.profile` — the skill never hardcodes concrete model ids; it always reads the vars and asks the user when they are unset. `PI_MODEL_DEFAULT` is used whenever available; only when it is unavailable does the skill fall back, choosing between HIGH (quality / long context) and BULK (parallel / bulk) based on task type and concurrency. This only affects subagents, never the orchestrator session. See `SKILL.md` → *Subagent model 選擇與 fallback*.
+Subagent models are driven by env vars (`PI_MODEL_DEFAULT`, `PI_MODEL_FALLBACK_HIGH`, `PI_MODEL_FALLBACK_BULK`) exported from your shell startup file (e.g. `~/.bashrc`; source it or open a new shell) — the skill never hardcodes concrete model ids; it always reads the vars and asks the user when they are unset. `PI_MODEL_DEFAULT` is used whenever available; only when it is unavailable does the skill fall back, choosing between HIGH (quality / long context) and BULK (parallel / bulk) based on task type and concurrency. This only affects subagents, never the orchestrator session. See `SKILL.md` → *Subagent model 選擇與 fallback*.
 
 ## Pi-package discovery (`PI_PACKAGES_DIR`)
 
-Pi packages (extensions/skills) are **not** pinned in subagent profiles — the main agent picks them **dynamically per task** before each spawn (the package folder changes often, so pinned names go stale). The discovery directory comes from the `PI_PACKAGES_DIR` env var. On this machine it is exported from `~/.profile` (which `~/.zshrc` sources; new panes pick it up):
+Pi packages (extensions/skills) are **not** pinned in subagent profiles — the main agent picks them **dynamically per task** before each spawn (the package folder changes often, so pinned names go stale). The discovery directory comes from the `PI_PACKAGES_DIR` env var, exported from your shell startup file (e.g. `~/.bashrc`; source it or open a new shell to take effect):
 
 ```bash
-# ~/.profile
+# e.g. ~/.bashrc — sample (local example): /path/to/pi-packages
 export PI_PACKAGES_DIR=/path/to/pi-packages
 ```
 

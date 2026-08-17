@@ -30,14 +30,14 @@
 
 ## Subagent model fallback
 
-subagent 用的 model 由 env 驅動（`PI_MODEL_DEFAULT` / `PI_MODEL_FALLBACK_HIGH` / `PI_MODEL_FALLBACK_BULK`），從 `~/.profile` export——skill **不硬編碼具體模型**，一律讀取變數，未設定時請使用者設定。`PI_MODEL_DEFAULT` 可用時一律用它；僅當它不可用時才 fallback，依任務類型與併發在 HIGH（品質/長上下文）與 BULK（批量/並行）之間選。只影響 subagent，不影響 orchestrator session。見 `SKILL.md` → *Subagent model 選擇與 fallback*。
+subagent 用的 model 由 env 驅動（`PI_MODEL_DEFAULT` / `PI_MODEL_FALLBACK_HIGH` / `PI_MODEL_FALLBACK_BULK`），在 shell 啟動設定檔（例如 `~/.bashrc`；source 或重開 shell 後生效）export——skill **不硬編碼具體模型**，一律讀取變數，未設定時請使用者設定。`PI_MODEL_DEFAULT` 可用時一律用它；僅當它不可用時才 fallback，依任務類型與併發在 HIGH（品質/長上下文）與 BULK（批量/並行）之間選。只影響 subagent，不影響 orchestrator session。見 `SKILL.md` → *Subagent model 選擇與 fallback*。
 
 ## Pi-package 發現目錄（`PI_PACKAGES_DIR`）
 
-pi packages（extensions/skills）**不寫死在 subagent profile**——由 main agent 在每次 spawn 前**依任務動態選用**（package 目錄經常變動，寫死容易過時）。發現目錄來自環境變數 `PI_PACKAGES_DIR`。本機的設定方式是在 `~/.profile` export（`~/.zshrc` 會 source 它；**新開的 pane** 才會生效）：
+pi packages（extensions/skills）**不寫死在 subagent profile**——由 main agent 在每次 spawn 前**依任務動態選用**（package 目錄經常變動，寫死容易過時）。發現目錄來自環境變數 `PI_PACKAGES_DIR`，在 shell 啟動設定檔（例如 `~/.bashrc`；source 或重開 shell 後生效）export：
 
 ```bash
-# ~/.profile
+# 例如 ~/.bashrc — 範例（本機範例）：/path/to/pi-packages
 export PI_PACKAGES_DIR=/path/to/pi-packages
 ```
 

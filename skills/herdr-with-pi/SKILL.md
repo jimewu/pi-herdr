@@ -201,7 +201,7 @@ git branch -D <agent-name>              # ④ 刪 branch
 
 ## Subagent model 選擇與 fallback
 
-subagent 啟動時用的 model 由 env 變數決定（**只影響 subagent，不影響 orchestrator 自己的 model**）。**本 skill 一律讀取變數、不硬編碼具體模型**——變數由使用者在 `~/.profile` export（被 `~/.zshrc` source，新開的 pane 生效）：
+subagent 啟動時用的 model 由 env 變數決定（**只影響 subagent，不影響 orchestrator 自己的 model**）。**本 skill 一律讀取變數、不硬編碼具體模型**——變數由使用者在 shell 啟動設定檔 export（例如 `~/.bashrc`；source 或重開後生效）：
 
 | env 變數 | 用途 |
 |---|---|
@@ -215,7 +215,7 @@ subagent 啟動時用的 model 由 env 變數決定（**只影響 subagent，不
 echo $PI_MODEL_DEFAULT $PI_MODEL_FALLBACK_HIGH $PI_MODEL_FALLBACK_BULK
 ```
 
-任一變數未設定時：**停止分派並請使用者設定**（寫進 `~/.profile` 後重開 pane），不要自行猜測或硬編碼模型名稱。
+任一變數未設定時：**停止分派並請使用者設定**（寫進 shell 啟動設定檔後重開 pane 或 source），不要自行猜測或硬編碼模型名稱。
 
 **選用規則（兩階段，順序不可顛倒）**：
 
@@ -227,7 +227,7 @@ echo $PI_MODEL_DEFAULT $PI_MODEL_FALLBACK_HIGH $PI_MODEL_FALLBACK_BULK
 注意：
 - `--model` 一律用完整 `provider/model` 格式（見「量身訂做參數」的 ⚠️ 警告）——env 值本身應存完整格式
 - 用 BULK 前先確認任務不超過該 model 的 context / 輸出上限（依環境實測）
-- `~/.profile` 只對**新開的 pane** 生效；已開的 pane 要 `source ~/.profile` 或重開
+- shell 啟動設定檔只對**新開的 pane** 生效；已開的 pane 要 `source ~/.bashrc`（或對應檔案）或重開
 
 ## Subagent profiles（agents/ 目錄）
 
@@ -273,7 +273,7 @@ changelog: |
 
 目標：**subagent 只載入任務真正需要的工具資源**——內建工具由 profile 的 `tools` 白名單規範；pi packages（skills/tools）則由 **main agent 依當前任務動態決定**，不寫死在 profile（pi package 目錄經常變動，寫死容易過時）。不需要的 package 一律不掛，避免多餘 skill/tool 分散注意力、空耗 context。
 
-- 發現目錄由 env `PI_PACKAGES_DIR` 設定（export 在 `~/.profile`，被 `~/.zshrc` source；本機為 `/path/to/pi-packages`）
+- 發現目錄由 env `PI_PACKAGES_DIR` 設定（export 在 shell 啟動設定檔，例如 `~/.bashrc`；本機範例值 `/path/to/pi-packages`）
 - **spawn 前（動態決定）**：
   1. `herdr_package list` 查看 `PI_PACKAGES_DIR` 當下有哪些 packages（name / description / keywords）
   2. 依**當前任務**選擇需要的 package(s)（不寫入 profile frontmatter）
@@ -294,7 +294,7 @@ changelog: |
 
 注意：
 - 本機路徑 `/path/to/pi-packages` 只是此機器的設定值，**skill 不硬編碼**——一律讀 `PI_PACKAGES_DIR`
-- `~/.profile` 只對**新開的 pane** 生效（同「Subagent model 選擇與 fallback」的注意事項）
+- shell 啟動設定檔只對**新開的 pane** 生效（同「Subagent model 選擇與 fallback」的注意事項）
 - 動態選用 packages 時**只挑任務真正需要的**：subagent 掛載的額外資源越少，context 越省
 
 ## 量身訂做參數（agentArgs，實測有效）
