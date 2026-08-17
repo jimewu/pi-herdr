@@ -413,27 +413,11 @@ describe("herdr_profile (use-or-create)", () => {
 		expect(manager.list().map((p) => p.name)).toEqual(["csharp-expert", "r-expert"]);
 	});
 
-	test("creates a profile with targeted pi packages", () => {
-		const manager = createProfileManager(agentsDir);
-		const created = manager.create({
-			name: "skill-builder",
-			description: "書轉 skill 工作流執行者。",
-			tools: "read, bash",
-			packages: "book-to-skill, site-to-skill",
-			body: "你是 skill 建置者。",
-		});
-		expect(created.packages).toBe("book-to-skill, site-to-skill");
-		const raw = readFileSync(join(agentsDir, "skill-builder.md"), "utf8");
-		expect(raw).toContain("packages: book-to-skill, site-to-skill");
-		// list 會帶回 packages 欄位
-		expect(manager.list().find((p) => p.name === "skill-builder")?.packages).toBe("book-to-skill, site-to-skill");
-	});
-
-	test("creates a profile without packages when none are needed", () => {
+	test("creates a profile without pinning pi packages (dynamic per task)", () => {
 		const manager = createProfileManager(agentsDir);
 		manager.create({ name: "lit-searcher", description: "文獻檢索。", tools: "read, bash", body: "body" });
 		const raw = readFileSync(join(agentsDir, "lit-searcher.md"), "utf8");
-		expect(raw).not.toContain("packages:");
+		expect(raw).not.toContain("packages:"); // pi packages 由 main agent 動態決定，不寫死在 profile
 	});
 
 	test("refuses to overwrite an existing profile", () => {

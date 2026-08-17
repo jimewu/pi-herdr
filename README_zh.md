@@ -10,7 +10,7 @@
 
 - **`herdr_*` tools** — `herdr_layout`、`herdr_pane`、`herdr_agent`，衍生自 [pi-herdr](https://github.com/ogulcancelik/pi-herdr)（MIT © ogulcancelik），並調整了調用策略以配合本 repo 的 skill；另有 `herdr_profile`（列出/讀取/建立 `agents/` 的 subagent profiles）與 `herdr_package`（列出/解析 `$PI_PACKAGES_DIR` 下的 pi packages，供 subagent 工具配置）。
 - **`skills/herdr-with-pi/SKILL.md`** — **herdr-with-pi** 策略層。告訴 pi **何時**建議分派 subagent（並行探索、黑箱研究、上下文隔離）、**怎麼**跑標準工作流（開 tab → start → prompt → 監督 → 關閉）、以及**怎麼用**下面的 profiles。這**不是** Herdr 官方 skill（以 CLI 為中心、opt-in）；這是本地重寫版。
-- **`agents/`** — 可重用的 subagent profiles（YAML frontmatter + system prompt body）。每個 profile 都是**針對性**的：`tools` 欄位成為 `-t` 白名單，可選的 `packages` 欄位宣告該 subagent 需要的 pi packages（來自 `$PI_PACKAGES_DIR`），spawn 時解析為 `-e <dir>` 掛載——subagent 只帶任務需要的資源、不多餘。spawn 前 orchestrator 會先透過 `herdr_profile list` 檢查 `agents/`：既有 profile **只有在完全適用時**（領域/語言/職責/工具全部吻合）才直接沿用，否則用 `herdr_profile create` 依需求建立新 profile，之後成為資產供同型別任務使用。
+- **`agents/`** — 可重用的 subagent profiles（YAML frontmatter + system prompt body）。每個 profile 都是**針對性**的：`tools` 欄位成為 `-t` 白名單，body 為 system prompt。pi packages **不寫死在 profile**——由 main agent 依當前任務透過 `herdr_package` 動態選用（package 目錄常變動），spawn 時解析為 `-e <dir>` 掛載——subagent 只帶任務需要的資源、不多餘。spawn 前 orchestrator 會先透過 `herdr_profile list` 檢查 `agents/`：既有 profile **只有在完全適用時**（領域/語言/職責/工具全部吻合）才直接沿用，否則用 `herdr_profile create` 依需求建立新 profile，之後成為資產供同型別任務使用。
 
 ## 架構分工
 
