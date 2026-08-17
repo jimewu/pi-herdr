@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import herdrExtension, { createProfileManager } from "./index";
+import herdrExtension, { createPackageScanner, createProfileManager } from "./index";
 
 const currentPane = {
 	pane_id: "w1:p1",
@@ -74,7 +74,7 @@ describe("pi-herdr", () => {
 
 	test("registers separate layout, pane, and agent primitives", () => {
 		const tools = registerTools(() => ({}));
-		expect([...tools.keys()]).toEqual(["herdr_layout", "herdr_pane", "herdr_agent", "herdr_profile"]);
+		expect([...tools.keys()]).toEqual(["herdr_layout", "herdr_pane", "herdr_agent", "herdr_profile", "herdr_package"]);
 		expect(tools.get("herdr_layout").description).toContain("Workspaces contain tabs; tabs contain panes");
 		expect(tools.get("herdr_pane").description).toContain("ordinary processes");
 		expect(tools.get("herdr_agent").description).toContain("existing Herdr pane");
@@ -413,6 +413,29 @@ describe("herdr_profile (use-or-create)", () => {
 		expect(manager.list().map((p) => p.name)).toEqual(["csharp-expert", "r-expert"]);
 	});
 
+	test("creates a profile with targeted pi packages", () => {
+		const manager = createProfileManager(agentsDir);
+		const created = manager.create({
+			name: "skill-builder",
+			description: "書轉 skill 工作流執行者。",
+			tools: "read, bash",
+			packages: "book-to-skill, site-to-skill",
+			body: "你是 skill 建置者。",
+		});
+		expect(created.packages).toBe("book-to-skill, site-to-skill");
+		const raw = readFileSync(join(agentsDir, "skill-builder.md"), "utf8");
+		expect(raw).toContain("packages: book-to-skill, site-to-skill");
+		// list 會帶回 packages 欄位
+		expect(manager.list().find((p) => p.name === "skill-builder")?.packages).toBe("book-to-skill, site-to-skill");
+	});
+
+	test("creates a profile without packages when none are needed", () => {
+		const manager = createProfileManager(agentsDir);
+		manager.create({ name: "lit-searcher", description: "文獻檢索。", tools: "read, bash", body: "body" });
+		const raw = readFileSync(join(agentsDir, "lit-searcher.md"), "utf8");
+		expect(raw).not.toContain("packages:");
+	});
+
 	test("refuses to overwrite an existing profile", () => {
 		writeProfile("lit-searcher", "文獻檢索助理（PubMed 等）。", "read, bash", "你是文獻檢索助理。");
 		const manager = createProfileManager(agentsDir);
@@ -433,5 +456,99 @@ describe("herdr_profile (use-or-create)", () => {
 		const names = manager.list().map((p) => p.name);
 		expect(names).toContain("lit-searcher");
 		expect(names).toContain("code-reviewer");
+	});
+});
+
+describe("herdr_package (pi-package provisioning)", () => {
+	let packagesDir: string;
+
+	beforeEach(() => {
+		packagesDir = mkdtempSync(join(tmpdir(), "herdr-packages-"));
+	});
+
+	afterEach(() => {
+		rmSync(packagesDir, { recursive: true, force: true });
+		delete process.env.PI_PACKAGES_DIR;
+	});
+
+	function writePackage(dir: string, name: string, description: string, keywords: string[], pi?: object) {
+		const pkgDir = join(packagesDir, dir);
+		mkdirSync(pkgDir, { recursive: true });
+		writeFileSync(join(pkgDir, "package.json"), JSON.stringify({ name, description, keywords, pi }, null, 2));
+	}
+
+	test("lists pi packages with their resources and skips non-packages", () => {
+		writePackage("book-to-skill", "@scope/book-to-skill", "Convert books into skills.", ["pi-package"], {
+			extensions: ["./extensions"],
+			skills: ["./skills"],
+		});
+		writePackage("plain-dir", "no-manifest", "Has a package.json but no pi field.", []);
+		mkdirSync(join(packagesDir, "not-a-package"), { recursive: true }); // 無 package.json → 跳過
+
+		const packages = createPackageScanner(packagesDir).list();
+		expect(packages).toHaveLength(2);
+		expect(packages[0].name).toBe("@scope/book-to-skill");
+		expect(packages[0].resources).toEqual(["./extensions", "./skills"]);
+		expect(packages[0].keywords).toContain("pi-package");
+		expect(packages[1].name).toBe("no-manifest");
+		expect(packages[1].resources).toEqual([]);
+	});
+
+	test("returns an empty list for a missing directory", () => {
+		expect(createPackageScanner(join(packagesDir, "nope")).list()).toEqual([]);
+	});
+
+	test("herdr_package reports unset env and skips provisioning", async () => {
+		delete process.env.PI_PACKAGES_DIR;
+		const tools = registerTools(() => ({}));
+		const result = await tools.get("herdr_package").execute("test", { action: "list" }, undefined, undefined, {});
+		expect(result.details.envSet).toBe(false);
+		expect(result.content[0].text).toContain("PI_PACKAGES_DIR is not set");
+	});
+
+	test("herdr_package lists available packages when env is set", async () => {
+		writePackage("book-to-skill", "book-to-skill", "Convert books into skills.", ["pi-package"]);
+		process.env.PI_PACKAGES_DIR = packagesDir;
+		const tools = registerTools(() => ({}));
+		const result = await tools.get("herdr_package").execute("test", { action: "list" }, undefined, undefined, {});
+		expect(result.details.envSet).toBe(true);
+		expect(result.details.packagesDir).toBe(packagesDir);
+		expect(result.details.packages).toHaveLength(1);
+		expect(result.details.packages[0].name).toBe("book-to-skill");
+		expect(result.content[0].text).toContain("book-to-skill");
+	});
+
+	test("find resolves names to paths and reports missing ones", () => {
+		writePackage("book-to-skill", "book-to-skill", "Convert books into skills.", []);
+		writePackage("site-to-skill", "site-to-skill", "Convert sites into skills.", []);
+		const { found, missing } = createPackageScanner(packagesDir).find(["book-to-skill", "no-such-pkg"]);
+		expect(found.map((p) => p.name)).toEqual(["book-to-skill"]);
+		expect(found[0].path).toBe(join(packagesDir, "book-to-skill"));
+		expect(missing).toEqual(["no-such-pkg"]);
+	});
+
+	test("herdr_package resolve emits -e entries and skips missing ones", async () => {
+		writePackage("book-to-skill", "book-to-skill", "Convert books into skills.", []);
+		process.env.PI_PACKAGES_DIR = packagesDir;
+		const tools = registerTools(() => ({}));
+		const result = await tools
+			.get("herdr_package")
+			.execute("test", { action: "resolve", packages: ["book-to-skill", "ghost"] }, undefined, undefined, {});
+		expect(result.details.envSet).toBe(true);
+		expect(result.details.found).toHaveLength(1);
+		expect(result.details.found[0].path).toBe(join(packagesDir, "book-to-skill"));
+		expect(result.details.missing).toEqual(["ghost"]);
+		expect(result.content[0].text).toContain(`-e ${join(packagesDir, "book-to-skill")}`);
+		expect(result.content[0].text).toContain("missing: ghost");
+	});
+
+	test("herdr_package resolve skips provisioning when env is unset", async () => {
+		delete process.env.PI_PACKAGES_DIR;
+		const tools = registerTools(() => ({}));
+		const result = await tools
+			.get("herdr_package")
+			.execute("test", { action: "resolve", packages: ["book-to-skill"] }, undefined, undefined, {});
+		expect(result.details.envSet).toBe(false);
+		expect(result.content[0].text).toContain("PI_PACKAGES_DIR is not set");
 	});
 });

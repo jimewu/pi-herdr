@@ -246,7 +246,7 @@ changelog: |
 （system prompt 內容）
 ```
 
-欄位說明：`name` / `description` 為 pi subagent 格式必填；`tools` 為啟動時組裝參數用；`model` **可省略**——若填僅為提示，實際值一律由 orchestrator 依 `PI_MODEL_*` env 選用（見「Subagent model 選擇與 fallback」），**不得硬編碼具體模型**；`version`（semver）與 `changelog`（多行，**最近一版在最上面**，說明改版原因）為本 repo 的改版追蹤慣例，每次調整 profile 必須更新。
+欄位說明：`name` / `description` 為 pi subagent 格式必填；`tools` 為啟動時組裝 `-t` 工具白名單用；`packages` **可省略**——逗號分隔的 pi package 名稱（來自 `PI_PACKAGES_DIR`），啟動時解析為 `-e <dir>` 掛載該 subagent 需要的 skills/tools（見「Subagent 工具配置（pi packages）」）；`model` **可省略**——若填僅為提示，實際值一律由 orchestrator 依 `PI_MODEL_*` env 選用（見「Subagent model 選擇與 fallback」），**不得硬編碼具體模型**；`version`（semver）與 `changelog`（多行，**最近一版在最上面**，說明改版原因）為本 repo 的改版追蹤慣例，每次調整 profile 必須更新。
 
 **用法**：orchestrator 讀取 profile → 用 frontmatter 的 `tools` 組裝 `herdr_agent start` 的 `agentArgs`（`-t`）；`--model` 一律依 `PI_MODEL_*` env 選用（見「Subagent model 選擇與 fallback」）；profile body 的 system prompt 內容透過 `prompt` 傳給 subagent（agentArgs 無法安全編碼多行字串）→ 任務完成後把經驗寫回 profile（改版迭代，記得更新 `version` 與 `changelog`）。
 
@@ -269,6 +269,48 @@ changelog: |
 範例：
 - 既有 `r-expert`（R 語言專家），任務是「寫 C# 程式」→ R profile 領域不符 → **create `csharp-expert`**
 - 既有 `lit-searcher`（PubMed 文獻檢索），任務是「PubMed 檢索」→ 完全適用 → **直接使用**
+
+### Subagent 工具配置（pi packages）
+
+目標：**subagent 只載入任務真正需要的工具資源**——profile 的 `packages` 欄位宣告該 subagent需要哪些 pi package（skills/tools），spawn 時解析成 `-e <dir>` 掛載；不需要的 package 一律不掛，避免多餘 skill/tool 分散注意力、空耗 context。
+
+- 發現目錄由 env `PI_PACKAGES_DIR` 設定（export 在 `~/.profile`，被 `~/.zshrc` source；本機為 `/path/to/pi-packages`）
+- **建立 profile 時**（`herdr_profile create`）：先用 `herdr_package list` 查看 `PI_PACKAGES_DIR` 下有哪些 packages，把該 subagent 任務**確實需要**的寫進 frontmatter 的 `packages`（逗號分隔，例如 `packages: book-to-skill`）；不需要就省略
+- **spawn 時**：
+  1. 讀取 profile frontmatter 的 `packages` 欄位
+  2. `herdr_package resolve` 把名稱解析為 `-e <dir>` 路徑
+  3. `herdr_agent start` 的 `agentArgs` 放入 `-e <dir>`（每個 package 一組 `-e`；單行、無特殊字元，符合「量身訂做參數」的 agentArgs 安全限制）
+  4. resolve 回報 missing 的 package 直接跳過，spawn 照常進行
+- **`PI_PACKAGES_DIR` 未設定**（或為空）：不掛載任何 package，照常 spawn——profile 的 `tools` 白名單（`-t`）仍適用
+
+profile frontmatter 範例：
+
+```markdown
+---
+name: skill-builder
+version: 0.1.0
+description: 書轉 skill 工作流執行者
+tools: read, bash
+packages: book-to-skill
+model: <由 orchestrator 依 PI_MODEL_* env 選用，勿硬編碼>
+changelog: |
+  - 0.1.0: 初版建立。
+---
+（system prompt 內容）
+```
+
+```json
+// spawn：把 packages 解析為 -e
+{
+  "action": "start", "name": "sb1", "kind": "pi", "pane": "<p1>",
+  "agentArgs": ["-t", "read,bash", "-e", "/path/to/pi-packages/book-to-skill", "--model", "<依 PI_MODEL_*>選用>"]
+}
+```
+
+注意：
+- 本機路徑 `/path/to/pi-packages` 只是此機器的設定值，**skill 不硬編碼**——一律讀 `PI_PACKAGES_DIR`
+- `~/.profile` 只對**新開的 pane** 生效（同「Subagent model 選擇與 fallback」的注意事項）
+- `packages` 只在**真正需要時填**：subagent 掛載的額外資源越少，context 越省
 
 ## 量身訂做參數（agentArgs，實測有效）
 

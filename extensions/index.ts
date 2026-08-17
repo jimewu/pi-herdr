@@ -111,6 +111,7 @@ interface ProfileInfo {
 	version?: string;
 	description?: string;
 	tools?: string;
+	packages?: string;
 }
 
 interface ProfileFrontmatter {
@@ -118,6 +119,7 @@ interface ProfileFrontmatter {
 	version?: string;
 	description?: string;
 	tools?: string;
+	packages?: string;
 	model?: string;
 	[key: string]: string | undefined;
 }
@@ -143,12 +145,14 @@ function buildProfileMarkdown(input: {
 	description: string;
 	tools: string;
 	body: string;
+	packages?: string;
 	version?: string;
 	changelog?: string;
 }): string {
 	const version = input.version ?? "0.1.0";
 	const changelog = input.changelog ?? `  - 0.1.0: 初版建立。由 orchestrator 依需求建立。`;
-	return `---\nname: ${input.name}\nversion: ${version}\ndescription: ${input.description}\ntools: ${input.tools}\nmodel: <由 orchestrator 依 PI_MODEL_* env 選用，勿硬編碼>\nchangelog: |\n${changelog}\n---\n${input.body.trim()}\n`;
+	const packagesLine = input.packages ? `packages: ${input.packages}\n` : "";
+	return `---\nname: ${input.name}\nversion: ${version}\ndescription: ${input.description}\ntools: ${input.tools}\n${packagesLine}model: <由 orchestrator 依 PI_MODEL_* env 選用，勿硬編碼>\nchangelog: |\n${changelog}\n---\n${input.body.trim()}\n`;
 }
 
 /**
@@ -170,6 +174,7 @@ export function createProfileManager(agentsDir: string) {
 					version: metadata.version,
 					description: metadata.description,
 					tools: metadata.tools,
+					packages: metadata.packages,
 				};
 			})
 			.sort((a, b) => a.name.localeCompare(b.name));
@@ -181,7 +186,13 @@ export function createProfileManager(agentsDir: string) {
 		return readFileSync(path, "utf8");
 	}
 
-	function create(input: { name: string; description: string; tools: string; body: string }): ProfileInfo {
+	function create(input: {
+		name: string;
+		description: string;
+		tools: string;
+		body: string;
+		packages?: string;
+	}): ProfileInfo {
 		if (!PROFILE_NAME_PATTERN.test(input.name)) {
 			throw new Error(
 				`profile name must match ${PROFILE_NAME_PATTERN}, got ${JSON.stringify(input.name)}`,
@@ -193,10 +204,89 @@ export function createProfileManager(agentsDir: string) {
 		}
 		mkdirSync(agentsDir, { recursive: true });
 		writeFileSync(path, buildProfileMarkdown(input), "utf8");
-		return { name: input.name, version: "0.1.0", description: input.description, tools: input.tools };
+		return {
+			name: input.name,
+			version: "0.1.0",
+			description: input.description,
+			tools: input.tools,
+			packages: input.packages,
+		};
 	}
 
 	return { list, read, create };
+}
+
+/**
+ * Pi-package discovery for subagent tool provisioning.
+ *
+ * The strategy rule (SKILL.md, and the herdr_package tool description): when
+ * the PI_PACKAGES_DIR env var is set, the main agent lists available pi
+ * packages before spawning a subagent, picks the ones the subagent's task
+ * needs, and passes them via `pi -e <dir>` in herdr_agent start agentArgs.
+ * When the var is unset the flow works as before (no tool provisioning).
+ */
+
+interface PackageInfo {
+	name: string;
+	path: string;
+	description?: string;
+	keywords?: string[];
+	resources: string[];
+}
+
+/**
+ * Factory for scanning a directory of pi packages (each subdirectory with a
+ * package.json counts as a package). Exported so tests can exercise it
+ * against a temp directory.
+ */
+export function createPackageScanner(packagesDir: string) {
+	function list(): PackageInfo[] {
+		if (!existsSync(packagesDir)) return [];
+		return readdirSync(packagesDir, { withFileTypes: true })
+			.filter((entry) => entry.isDirectory())
+			.map((entry): PackageInfo | null => {
+				const manifestPath = join(packagesDir, entry.name, "package.json");
+				if (!existsSync(manifestPath)) return null;
+				try {
+					const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+						name?: string;
+						description?: string;
+						keywords?: string[];
+						pi?: { extensions?: string[]; skills?: string[] };
+					};
+					const name = manifest.name || entry.name;
+					const resources = [
+						...(manifest.pi?.extensions || []),
+						...(manifest.pi?.skills || []),
+					];
+					return {
+						name,
+						path: join(packagesDir, entry.name),
+						description: manifest.description,
+						keywords: manifest.keywords,
+						resources,
+					};
+				} catch {
+					return null; // unreadable package.json — skip
+				}
+			})
+			.filter((pkg): pkg is PackageInfo => pkg !== null)
+			.sort((a, b) => a.name.localeCompare(b.name));
+	}
+
+	function find(names: string[]): { found: PackageInfo[]; missing: string[] } {
+		const all = list();
+		const found: PackageInfo[] = [];
+		const missing: string[] = [];
+		for (const name of names) {
+			const match = all.find((pkg) => pkg.name === name);
+			if (match) found.push(match);
+			else missing.push(name);
+		}
+		return { found, missing };
+	}
+
+	return { list, find };
 }
 
 const StatusEnum = StringEnum(["idle", "working", "blocked", "done", "unknown"] as const, {
@@ -890,11 +980,11 @@ export default function (pi: ExtensionAPI) {
 		name: "herdr_profile",
 		label: "Herdr Profile",
 		description:
-			"Manage subagent profiles in this repo's agents/ directory. Profiles are versioned assets (YAML frontmatter + system-prompt body) used to spawn subagents. Before starting a subagent, always call herdr_profile list first: if a profile is *exactly* fit for the task — domain and language match the description, the responsibility matches, and its tools cover what the task needs — reuse it (read it and use its body as the prompt). If no existing profile is exactly fit (any noticeable gap, e.g. an R-expert profile for a C# task), create a new one with create and use that profile for the spawn. Never repurpose a profile that is merely close.",
+			"Manage subagent profiles in this repo's agents/ directory. Profiles are versioned assets (YAML frontmatter + system-prompt body) used to spawn subagents: the frontmatter carries the targeted tool allow-list (tools) and the targeted pi packages (packages, from PI_PACKAGES_DIR) so a spawned subagent only gets the system prompt, tools, and skills its task needs — no extra context. Before starting a subagent, always call herdr_profile list first: if a profile is *exactly* fit for the task — domain and language match the description, the responsibility matches, and its tools cover what the task needs — reuse it (read it and use its body as the prompt). If no existing profile is exactly fit (any noticeable gap, e.g. an R-expert profile for a C# task), create a new one with create and use that profile for the spawn. Never repurpose a profile that is merely close.",
 		promptSnippet: "List, read, and create subagent profiles in agents/",
 		promptGuidelines: [
 			"Before spawning a subagent, check agents/ via herdr_profile list; a profile counts as fit only when it is exactly fit (domain, language, responsibility, and tool needs all match). If exactly fit, read it and spawn from it.",
-			"If no profile is exactly fit, create a new one with herdr_profile create: name is a short lowercase id, description states precisely when the profile applies, tools lists the comma-separated tool allow-list, body is the system prompt including the output contract. Only then start the subagent from the new profile.",
+			"If no profile is exactly fit, create a new one with herdr_profile create: name is a short lowercase id, description states precisely when the profile applies, tools lists the comma-separated tool allow-list, packages lists the comma-separated pi package names this subagent needs (from PI_PACKAGES_DIR; omit when unset), body is the system prompt including the output contract. Keep tools and packages minimal — the subagent should only carry what its task needs. Only then start the subagent from the new profile.",
 			"create refuses to overwrite an existing profile — update it instead or pick a distinct name.",
 		],
 		parameters: Type.Object({
@@ -909,6 +999,9 @@ export default function (pi: ExtensionAPI) {
 			),
 			description: Type.Optional(Type.String({ description: "When the profile applies; used as the pi subagent description" })),
 			tools: Type.Optional(Type.String({ description: "Comma-separated tool allow-list, e.g. read, bash" })),
+			packages: Type.Optional(
+				Type.String({ description: "Comma-separated pi package names this profile needs (from PI_PACKAGES_DIR); omit when unset" }),
+			),
 			body: Type.Optional(Type.String({ description: "System-prompt body, including the output contract" })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
@@ -951,6 +1044,7 @@ export default function (pi: ExtensionAPI) {
 						description: params.description,
 						tools: params.tools,
 						body: params.body,
+						packages: params.packages,
 					});
 					return {
 						content: [
@@ -966,6 +1060,72 @@ export default function (pi: ExtensionAPI) {
 		},
 		renderCall(args, theme, context) {
 			return renderToolCall("herdr_profile", args, theme, context);
+		},
+		renderResult(result, options, theme) {
+			return renderToolResult(result, options, theme);
+		},
+	});
+
+	pi.registerTool({
+		name: "herdr_package",
+		label: "Herdr Package",
+		description:
+			"Discover and resolve pi packages (extensions/skills) for provisioning subagent tools. list shows the packages under $PI_PACKAGES_DIR (with description/keywords); resolve maps package names (from a profile's `packages` frontmatter field) to their directories, ready to pass as `-e <dir>` in herdr_agent start agentArgs. Profiles declare their targeted packages so a spawned subagent only loads the tools/skills its task needs. When PI_PACKAGES_DIR is unset, skip tool provisioning entirely and spawn as usual.",
+		promptSnippet: "List/resolve pi packages from $PI_PACKAGES_DIR to provision subagent tools",
+		promptGuidelines: [
+			"When creating or choosing a subagent profile, use herdr_package list to see what pi packages exist under PI_PACKAGES_DIR, then record only the ones the subagent's task needs in the profile's `packages` frontmatter field (comma-separated; omit when none needed or when PI_PACKAGES_DIR is unset).",
+			"Before starting a subagent, resolve the profile's `packages` field with herdr_package resolve and pass each found package as a single-line `-e <dir>` entry in herdr_agent start agentArgs (e.g. [\"-e\", \"/abs/path/to/package\"]); keep agentArgs single-line and shell-safe. Missing packages are reported and skipped — spawn still proceeds.",
+			"When PI_PACKAGES_DIR is unset, skip tool provisioning entirely — the profile tools allow-list (-t) still applies.",
+		],
+		parameters: Type.Object({
+			action: StringEnum(["list", "resolve"] as const, {
+				description: "Package action",
+			}),
+			packages: Type.Optional(
+				Type.Array(Type.String(), { description: "Package names (from a profile's packages field) to resolve for resolve" }),
+			),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+			const packagesDir = process.env.PI_PACKAGES_DIR;
+			if (!packagesDir) {
+				return {
+					content: [{ type: "text", text: "PI_PACKAGES_DIR is not set; skipping pi-package provisioning." }],
+					details: { action: params.action, envSet: false },
+				};
+			}
+			const scanner = createPackageScanner(packagesDir);
+			if (params.action === "resolve") {
+				if (!params.packages?.length) throw new Error("'packages' is required for resolve");
+				const { found, missing } = scanner.find(params.packages);
+				const text = [
+					...found.map((pkg) => `-e ${pkg.path}  # ${pkg.name}`),
+					...(missing.length ? [`missing: ${missing.join(", ")}`] : []),
+				].join("\n");
+				return {
+					content: [{ type: "text", text: text || "(no packages)" }],
+					details: { action: "resolve", envSet: true, packagesDir, found, missing },
+				};
+			}
+			const packages = scanner.list();
+			return {
+				content: [
+					{
+						type: "text",
+						text: packages.length
+							? packages
+								.map(
+									(pkg) =>
+										`${pkg.name} — ${pkg.description || "(no description)"}${pkg.keywords?.length ? ` [${pkg.keywords.join(", ")}]` : ""}`,
+								)
+								.join("\n")
+							: `No pi packages found under ${packagesDir}.`,
+					},
+				],
+				details: { action: "list", envSet: true, packagesDir, packages },
+			};
+		},
+		renderCall(args, theme, context) {
+			return renderToolCall("herdr_package", args, theme, context);
 		},
 		renderResult(result, options, theme) {
 			return renderToolResult(result, options, theme);
