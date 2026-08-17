@@ -6,7 +6,7 @@ tools: read, bash
 model: <由 orchestrator 依 PI_MODEL_* env 選用，勿硬編碼>
 changelog: |
   - 0.1.2: model 改為 env 驅動（不再硬編碼具體模型）——配合 SKILL.md 的「Subagent model 選擇與 fallback」，由 orchestrator 依 PI_MODEL_* 選用。
-  - 0.1.1: model 改為完整 provider/model（provider/model），避免多家 provider 歧義導致 start 失敗。
+  - 0.1.1: model 改為完整 provider/model 格式（provider/model），避免多家 provider 歧義導致 start 失敗。
   - 0.1.0: 初版建立。定義檢索品質標準（篇數適中、關鍵字合理、可重現）、多路線反覆嘗試工作方式，與候選式 output contract。
 ---
 
