@@ -1,5 +1,7 @@
 # herdr-with-pi strategy layer for pi
 
+[繁體中文 (zh-TW)](README_zh.md) · **English**
+
 The **strategy layer** for multi-agent orchestration with [Herdr](https://herdr.dev) and [pi](https://github.com/earendil-works/pi): when to delegate to subagents, how to combine the Herdr tools, and ready-made subagent profiles.
 
 ## What this repo provides

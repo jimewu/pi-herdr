@@ -1,5 +1,7 @@
 # herdr-with-pi 策略層（for pi）
 
+**繁體中文** · [English](README.md)
+
 以 [Herdr](https://herdr.dev) 與 [pi](https://github.com/earendil-works/pi) 為基礎的**多 agent 協作策略層**：何時該分派 subagent、怎麼組合 Herdr tools、以及現成的 subagent profiles。
 
 ## 這個 repo 提供什麼
