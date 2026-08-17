@@ -9,7 +9,7 @@ description: "以 Herdr 為基礎的多 agent 協作策略層（herdr-with-pi）
 
 ## 執行前檢查
 
-- `HERDR_ENV=1`：確認自己跑在 Herdr 管理的 pane 內。若否，停止。
+- `HERDR_ENV=1` 且 `HERDR_PANE_ID` 已設定：確認自己跑在 Herdr 管理的 pane 內（同 extension 的啟動條件）。若否，停止。
 - `herdr_agent list`：確認現有 agent 狀態，避免名稱衝突、重複啟動。
 - **版面模式**：預設 tab 模式（每 agent 一 tab）；只有使用者明確指定時才用 pane 模式（見「版面配置慣例」）
 - git repo 內要派 subagent 改檔前：確認 main checkout 乾淨（`git status`），並先想好 worktree 目錄
@@ -239,7 +239,6 @@ name: lit-searcher
 version: 0.1.0
 description: 文獻檢索助理（PubMed 等），擅長關鍵字策略反覆嘗試
 tools: read, bash
-model: <由 PI_MODEL_* env 選用，勿硬編碼>
 changelog: |
   - 0.1.0: 初版建立。定義檢索品質標準與 output contract。
 ---
@@ -284,12 +283,12 @@ changelog: |
 - **`PI_PACKAGES_DIR` 未設定**（或為空）：不掛載任何 package，照常 spawn——profile 的 `tools` 白名單（`-t`）仍適用
 
 ```json
-// spawn 前動態掛載（PI_PACKAGES_DIR=/path/to/pi-packages，任務需要某個 skill package）
+// spawn 前動態掛載（$PI_PACKAGES_DIR 已設定，任務需要某個 skill package）
 // 1. herdr_package list → 找到 book-to-skill
-// 2. herdr_package resolve ["book-to-skill"] → -e /path/to/pi-packages/book-to-skill
+// 2. herdr_package resolve ["book-to-skill"] → -e <resolve 回傳的真實路徑>
 {
   "action": "start", "name": "sb1", "kind": "pi", "pane": "<p1>",
-  "agentArgs": ["-t", "read,bash", "-e", "/path/to/pi-packages/book-to-skill", "--model", "<依 PI_MODEL_*>選用>"]
+  "agentArgs": ["-t", "read,bash", "-e", "<resolve 回傳的路徑>", "--model", "<依 PI_MODEL_*>選用>"]
 }
 ```
 
@@ -302,10 +301,11 @@ changelog: |
 
 | 參數 | 用途 |
 |---|---|
-| `--append-system-prompt <text>` | 附加身份/規則（不取代預設） |
-| `--system-prompt <text>` | 完全取代預設 system prompt |
+| `--append-system-prompt <text>` | 附加身份/規則（不取代預設）；**僅限單行簡短文字**（見 ⚠️ 安全限制） |
+| `--system-prompt <text>` | 完全取代預設 system prompt；**僅限單行簡短文字**（見 ⚠️ 安全限制） |
 | `-t <tools>` | 工具白名單（如 `-t read`） |
 | `--skill <path>` | 強制載入指定 skill |
+| `-e <dir>` | 載入 pi package（extension/skill）；依任務動態指定（見「Subagent 工具配置（pi packages）」） |
 | `--model <pattern>` | 指定模型（完整 `provider/model`；未指定時依 `PI_MODEL_*` env 選用，見「Subagent model 選擇與 fallback」） |
 
 原則：subagent 只需要任務相關的工具與身份，**不要背多餘上下文**。

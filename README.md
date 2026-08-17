@@ -32,6 +32,17 @@ In a git repo where parallel subagents actually edit files, each subagent works 
 
 Subagent models are driven by env vars (`PI_MODEL_DEFAULT`, `PI_MODEL_FALLBACK_HIGH`, `PI_MODEL_FALLBACK_BULK`) exported from `~/.profile` — the skill never hardcodes concrete model ids; it always reads the vars and asks the user when they are unset. `PI_MODEL_DEFAULT` is used whenever available; only when it is unavailable does the skill fall back, choosing between HIGH (quality / long context) and BULK (parallel / bulk) based on task type and concurrency. This only affects subagents, never the orchestrator session. See `SKILL.md` → *Subagent model 選擇與 fallback*.
 
+## Pi-package discovery (`PI_PACKAGES_DIR`)
+
+Pi packages (extensions/skills) are **not** pinned in subagent profiles — the main agent picks them **dynamically per task** before each spawn (the package folder changes often, so pinned names go stale). The discovery directory comes from the `PI_PACKAGES_DIR` env var. On this machine it is exported from `~/.profile` (which `~/.zshrc` sources; new panes pick it up):
+
+```bash
+# ~/.profile
+export PI_PACKAGES_DIR=/path/to/pi-packages
+```
+
+When set, before each spawn the main agent calls `herdr_package list` to see what is currently available, picks the packages the task needs, resolves them with `herdr_package resolve`, and passes them as `-e <dir>` in the subagent's `agentArgs`. When `PI_PACKAGES_DIR` is unset (or empty), tool provisioning is skipped entirely and spawning works as before — the profile `tools` allow-list (`-t`) still applies.
+
 ## Load
 
 ```bash
@@ -60,13 +71,13 @@ bun test
 ## Requirements
 
 - pi 0.80+
-- Herdr 0.7.5+ running, with pi inside a Herdr-managed pane (`HERDR_ENV=1`)
+- Herdr 0.7.5+ running, with pi inside a Herdr-managed pane (`HERDR_ENV=1` and `HERDR_PANE_ID` set)
 
 ## Structure
 
 ```
 .
-├── extensions/       # pi extension: herdr_* tools + herdr_profile + skill registration
+├── extensions/       # pi extension: herdr_* tools (layout/pane/agent) + herdr_profile + herdr_package + skill registration
 │   ├── index.ts      #   extension entry (registers tools; discovers SKILL.md as skill)
 │   └── index.test.ts #   bun tests for the tools and profile use-or-create logic
 ├── skills/
