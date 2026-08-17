@@ -8,9 +8,9 @@
 
 一個**自包含的 pi extension**，用於 [Herdr](https://herdr.dev) 與 [pi](https://github.com/earendil-works/pi) 的多 agent 協作。在 repo 目錄執行 `pi -e .` 即載入全部內容：
 
-- **`herdr_*` tools** — `herdr_layout`、`herdr_pane`、`herdr_agent`，衍生自 [pi-herdr](https://github.com/ogulcancelik/pi-herdr)（MIT © ogulcancelik），並調整了調用策略以配合本 repo 的 skill。
+- **`herdr_*` tools** — `herdr_layout`、`herdr_pane`、`herdr_agent`，衍生自 [pi-herdr](https://github.com/ogulcancelik/pi-herdr)（MIT © ogulcancelik），並調整了調用策略以配合本 repo 的 skill；另有 `herdr_profile` 負責列出/讀取/建立 `agents/` 裡的 subagent profiles。
 - **`SKILL.md`** — **herdr-with-pi** 策略層。告訴 pi **何時**建議分派 subagent（並行探索、黑箱研究、上下文隔離）、**怎麼**跑標準工作流（開 tab → start → prompt → 監督 → 關閉）、以及**怎麼用**下面的 profiles。這**不是** Herdr 官方 skill（以 CLI 為中心、opt-in）；這是本地重寫版。
-- **`agents/`** — 可重用的 subagent profiles（YAML frontmatter + system prompt body）。orchestrator 讀取 profile 後組裝 `herdr_agent start` 參數（`--model`、`-t`、`--append-system-prompt`）。
+- **`agents/`** — 可重用的 subagent profiles（YAML frontmatter + system prompt body）。spawn 前 orchestrator 會先透過 `herdr_profile list` 檢查 `agents/`：既有 profile **只有在完全適用時**（領域/語言/職責/工具全部吻合）才直接沿用，否則用 `herdr_profile create` 依需求建立新 profile，之後成為資產供同型別任務使用。
 
 ## 架構分工
 

@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import herdrExtension from "./index";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import herdrExtension, { createProfileManager } from "./index";
 
 const currentPane = {
 	pane_id: "w1:p1",
@@ -71,10 +74,11 @@ describe("pi-herdr", () => {
 
 	test("registers separate layout, pane, and agent primitives", () => {
 		const tools = registerTools(() => ({}));
-		expect([...tools.keys()]).toEqual(["herdr_layout", "herdr_pane", "herdr_agent"]);
+		expect([...tools.keys()]).toEqual(["herdr_layout", "herdr_pane", "herdr_agent", "herdr_profile"]);
 		expect(tools.get("herdr_layout").description).toContain("Workspaces contain tabs; tabs contain panes");
 		expect(tools.get("herdr_pane").description).toContain("ordinary processes");
 		expect(tools.get("herdr_agent").description).toContain("existing Herdr pane");
+		expect(tools.get("herdr_profile").description).toContain("exactly fit");
 	});
 
 	test("splits the caller pane from geometry while preserving cwd and focus", async () => {
@@ -338,5 +342,96 @@ describe("pi-herdr", () => {
 
 		expect(calls).toEqual([["agent", "send-keys", "reviewer", "esc", "ctrl+c"]]);
 		expect(result.content[0].text).toBe("Sent esc ctrl+c to reviewer");
+	});
+});
+
+describe("herdr_profile (use-or-create)", () => {
+	let agentsDir: string;
+
+	beforeEach(() => {
+		agentsDir = mkdtempSync(join(tmpdir(), "herdr-profiles-"));
+	});
+
+	afterEach(() => {
+		rmSync(agentsDir, { recursive: true, force: true });
+	});
+
+	function writeProfile(name: string, description: string, tools: string, body: string) {
+		mkdirSync(agentsDir, { recursive: true });
+		writeFileSync(
+			join(agentsDir, `${name}.md`),
+			`---\nname: ${name}\nversion: 0.1.0\ndescription: ${description}\ntools: ${tools}\nmodel: <由 orchestrator 依 PI_MODEL_* env 選用，勿硬編碼>\nchangelog: |\n  - 0.1.0: 初版建立。\n---\n${body}\n`,
+		);
+	}
+
+	test("reuses an existing profile that is exactly fit (R expert has R task)", () => {
+		writeProfile("r-expert", "R 語言統計分析專家。", "read, bash, R", "你是 R 語言專家。");
+		const manager = createProfileManager(agentsDir);
+
+		// 檢查 agents/：有完全適用的 r-expert（領域/語言/職責/工具都吻合）
+		const profiles = manager.list();
+		expect(profiles).toHaveLength(1);
+		expect(profiles[0].name).toBe("r-expert");
+		expect(profiles[0].description).toContain("R");
+		expect(profiles[0].tools).toBe("read, bash, R");
+
+		// 完全適用 → 直接 read 使用，不新建
+		const body = manager.read("r-expert");
+		expect(body).toContain("你是 R 語言專家。");
+		expect(manager.list()).toHaveLength(1); // 沒有新增任何 profile
+	});
+
+	test("creates a new profile when none is exactly fit (C# task, only R expert exists)", () => {
+		writeProfile("r-expert", "R 語言統計分析專家。", "read, bash, R", "你是 R 語言專家。");
+		const manager = createProfileManager(agentsDir);
+
+		// 需求是 C# 專家；既有 r-expert 不適用（語言/領域不符）
+		expect(manager.list().map((p) => p.name)).toEqual(["r-expert"]);
+		expect(manager.list().map((p) => p.name)).not.toContain("csharp-expert");
+
+		// 沒有完全適用 → 依需求建立新 profile
+		const created = manager.create({
+			name: "csharp-expert",
+			description: "C# 語言專家。擅長 C#/.NET 開發與審查。",
+			tools: "read, bash, dotnet",
+			body: "你是 C# 專家。\n\n職責：撰寫與審查 C#/.NET 程式碼。\n輸出 contract：只回結論清單。",
+		});
+		expect(created.name).toBe("csharp-expert");
+		expect(created.version).toBe("0.1.0");
+
+		// 檔案已寫入 agents/，frontmatter 完整
+		const raw = readFileSync(join(agentsDir, "csharp-expert.md"), "utf8");
+		expect(raw).toContain("name: csharp-expert");
+		expect(raw).toContain("version: 0.1.0");
+		expect(raw).toContain("description: C# 語言專家。擅長 C#/.NET 開發與審查。");
+		expect(raw).toContain("tools: read, bash, dotnet");
+		expect(raw).toContain("model: <由 orchestrator 依 PI_MODEL_* env 選用，勿硬編碼>");
+		expect(raw).toContain("changelog: |");
+		expect(raw).toContain("你是 C# 專家。");
+
+		// 閉環：create 後 list 就看得到 → 下次同型別任務可直接適用
+		expect(manager.list().map((p) => p.name)).toEqual(["csharp-expert", "r-expert"]);
+	});
+
+	test("refuses to overwrite an existing profile", () => {
+		writeProfile("lit-searcher", "文獻檢索助理（PubMed 等）。", "read, bash", "你是文獻檢索助理。");
+		const manager = createProfileManager(agentsDir);
+		expect(() => manager.create({ name: "lit-searcher", description: "x", tools: "read", body: "y" })).toThrow(
+			/already exists/,
+		);
+	});
+
+	test("rejects invalid profile names", () => {
+		const manager = createProfileManager(agentsDir);
+		expect(() => manager.create({ name: "CSharp Expert", description: "x", tools: "read", body: "y" })).toThrow(
+			/must match/,
+		);
+	});
+
+	test("lists this repo's built-in profiles", () => {
+		const manager = createProfileManager(join(import.meta.dir, "agents"));
+		const names = manager.list().map((p) => p.name);
+		expect(names).toContain("lit-searcher");
+		expect(names).toContain("code-reviewer");
 	});
 });

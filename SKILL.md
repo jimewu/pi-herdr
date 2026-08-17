@@ -250,6 +250,26 @@ changelog: |
 
 **用法**：orchestrator 讀取 profile → 用 frontmatter 的 `tools` 組裝 `herdr_agent start` 的 `agentArgs`（`-t`）；`--model` 一律依 `PI_MODEL_*` env 選用（見「Subagent model 選擇與 fallback」）；profile body 的 system prompt 內容透過 `prompt` 傳給 subagent（agentArgs 無法安全編碼多行字串）→ 任務完成後把經驗寫回 profile（改版迭代，記得更新 `version` 與 `changelog`）。
 
+### 選擇與建立（用 or 建）
+
+啟動任何 subagent 前，**一律先檢查 `agents/` 裡有無「完全適用」的 profile**（`herdr_profile list`）：
+
+1. `herdr_profile list` 列出所有既有 profile（name / version / description / tools）
+2. **完全適用**才可直接使用——判定標準（**全部符合才算**，缺一即不適用）：
+   - **領域/語言精確一致**：profile 的 description 與任務的領域、語言、技術棧吻合（例如 `R 語言專家` profile 對 `C# 專家` 任務**不適用**）
+   - **職責吻合**：任務型別與 profile 定義的職責一致（黑箱研究、code review、文獻檢索…）
+   - **工具足夠**：profile 的 `tools` 涵蓋任務所需工具；任務需要但 profile 沒有的工具 → 不適用
+   - 只要有任一明顯落差 → **不算適用**
+3. **有完全適用** → `herdr_profile read <name>` 讀取內容，用 frontmatter `tools` 組裝 `herdr_agent start` 的 `agentArgs`、body 作為 `prompt`
+4. **沒有完全適用** → `herdr_profile create` **依需求撰寫新 profile** 寫入 `agents/`（name 小寫短 id；description 精確描述適用範圍；tools 逗號分隔工具白名單；body 為 system prompt，含職責與 output contract），**然後用新 profile spawn subagent**
+5. 新 profile 建立後即成為資產：**下次同型別任務直接適用**，不需要重建
+
+> 不要「將就」使用相近但不適用的 profile（例如用 R 專家 profile 去接 C# 任務）——以「任務與 profile 描述完全一致」為適用標準。
+
+範例：
+- 既有 `r-expert`（R 語言專家），任務是「寫 C# 程式」→ R profile 領域不符 → **create `csharp-expert`**
+- 既有 `lit-searcher`（PubMed 文獻檢索），任務是「PubMed 檢索」→ 完全適用 → **直接使用**
+
 ## 量身訂做參數（agentArgs，實測有效）
 
 | 參數 | 用途 |

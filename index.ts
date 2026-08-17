@@ -1,5 +1,6 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncateTail } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
@@ -90,6 +91,108 @@ interface HerdrJsonEnvelope {
 		code?: string;
 		message?: string;
 	};
+}
+
+/**
+ * Subagent profile management for this repo's agents/ directory.
+ *
+ * The strategy rule (SKILL.md, and the herdr_profile tool description) is:
+ * before spawning a subagent, check whether agents/ already has a profile that
+ * is *exactly* fit for the task (domain/language/responsibility/tools all
+ * match); if yes, use it; if no, create a new one via herdr_profile create.
+ */
+
+interface ProfileInfo {
+	name: string;
+	version?: string;
+	description?: string;
+	tools?: string;
+}
+
+interface ProfileFrontmatter {
+	name?: string;
+	version?: string;
+	description?: string;
+	tools?: string;
+	model?: string;
+	[key: string]: string | undefined;
+}
+
+const PROFILE_NAME_PATTERN = /^[a-z][a-z0-9_-]{0,31}$/;
+
+function parseFrontmatter(content: string): { metadata: ProfileFrontmatter; body: string } {
+	const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+	if (!match) return { metadata: {}, body: content };
+	const metadata: ProfileFrontmatter = {};
+	for (const line of match[1].split(/\r?\n/)) {
+		const colon = line.indexOf(":");
+		if (colon <= 0) continue;
+		const key = line.slice(0, colon).trim();
+		const value = line.slice(colon + 1).trim();
+		if (key && value && key !== "changelog") metadata[key] = value;
+	}
+	return { metadata, body: match[2] ?? "" };
+}
+
+function buildProfileMarkdown(input: {
+	name: string;
+	description: string;
+	tools: string;
+	body: string;
+	version?: string;
+	changelog?: string;
+}): string {
+	const version = input.version ?? "0.1.0";
+	const changelog = input.changelog ?? `  - 0.1.0: 初版建立。由 orchestrator 依需求建立。`;
+	return `---\nname: ${input.name}\nversion: ${version}\ndescription: ${input.description}\ntools: ${input.tools}\nmodel: <由 orchestrator 依 PI_MODEL_* env 選用，勿硬編碼>\nchangelog: |\n${changelog}\n---\n${input.body.trim()}\n`;
+}
+
+/**
+ * Factory for profile operations against an agents/ directory. Exported so
+ * tests can exercise list/read/create against a temp directory.
+ */
+export function createProfileManager(agentsDir: string) {
+	const profilePath = (name: string) => join(agentsDir, `${name}.md`);
+
+	function list(): ProfileInfo[] {
+		if (!existsSync(agentsDir)) return [];
+		return readdirSync(agentsDir)
+			.filter((entry) => entry.endsWith(".md"))
+			.map((entry) => {
+				const { metadata } = parseFrontmatter(readFileSync(join(agentsDir, entry), "utf8"));
+				const name = metadata.name || entry.slice(0, -3);
+				return {
+					name,
+					version: metadata.version,
+					description: metadata.description,
+					tools: metadata.tools,
+				};
+			})
+			.sort((a, b) => a.name.localeCompare(b.name));
+	}
+
+	function read(name: string): string | null {
+		const path = profilePath(name);
+		if (!existsSync(path)) return null;
+		return readFileSync(path, "utf8");
+	}
+
+	function create(input: { name: string; description: string; tools: string; body: string }): ProfileInfo {
+		if (!PROFILE_NAME_PATTERN.test(input.name)) {
+			throw new Error(
+				`profile name must match ${PROFILE_NAME_PATTERN}, got ${JSON.stringify(input.name)}`,
+			);
+		}
+		const path = profilePath(input.name);
+		if (existsSync(path)) {
+			throw new Error(`profile ${input.name} already exists in ${agentsDir}; use it or extend it instead`);
+		}
+		mkdirSync(agentsDir, { recursive: true });
+		writeFileSync(path, buildProfileMarkdown(input), "utf8");
+		return { name: input.name, version: "0.1.0", description: input.description, tools: input.tools };
+	}
+
+	return { list, read, create };
 }
 
 const StatusEnum = StringEnum(["idle", "working", "blocked", "done", "unknown"] as const, {
@@ -281,6 +384,8 @@ export default function (pi: ExtensionAPI) {
 			skillPaths: [join(extensionDir, "SKILL.md")],
 		};
 	});
+
+	const profileManager = createProfileManager(join(extensionDir, "agents"));
 
 	async function execHerdr(args: string[], signal?: AbortSignal) {
 		const result = await pi.exec("herdr", args, { signal });
@@ -771,6 +876,92 @@ export default function (pi: ExtensionAPI) {
 		},
 		renderCall(args, theme, context) {
 			return renderToolCall("herdr_agent", args, theme, context);
+		},
+		renderResult(result, options, theme) {
+			return renderToolResult(result, options, theme);
+		},
+	});
+
+	pi.registerTool({
+		name: "herdr_profile",
+		label: "Herdr Profile",
+		description:
+			"Manage subagent profiles in this repo's agents/ directory. Profiles are versioned assets (YAML frontmatter + system-prompt body) used to spawn subagents. Before starting a subagent, always call herdr_profile list first: if a profile is *exactly* fit for the task — domain and language match the description, the responsibility matches, and its tools cover what the task needs — reuse it (read it and use its body as the prompt). If no existing profile is exactly fit (any noticeable gap, e.g. an R-expert profile for a C# task), create a new one with create and use that profile for the spawn. Never repurpose a profile that is merely close.",
+		promptSnippet: "List, read, and create subagent profiles in agents/",
+		promptGuidelines: [
+			"Before spawning a subagent, check agents/ via herdr_profile list; a profile counts as fit only when it is exactly fit (domain, language, responsibility, and tool needs all match). If exactly fit, read it and spawn from it.",
+			"If no profile is exactly fit, create a new one with herdr_profile create: name is a short lowercase id, description states precisely when the profile applies, tools lists the comma-separated tool allow-list, body is the system prompt including the output contract. Only then start the subagent from the new profile.",
+			"create refuses to overwrite an existing profile — update it instead or pick a distinct name.",
+		],
+		parameters: Type.Object({
+			action: StringEnum(["list", "read", "create"] as const, {
+				description: "Profile action",
+			}),
+			name: Type.Optional(
+				Type.String({
+					pattern: "^[a-z][a-z0-9_-]{0,31}$",
+					description: "Profile name (lowercase id) for read or create",
+				}),
+			),
+			description: Type.Optional(Type.String({ description: "When the profile applies; used as the pi subagent description" })),
+			tools: Type.Optional(Type.String({ description: "Comma-separated tool allow-list, e.g. read, bash" })),
+			body: Type.Optional(Type.String({ description: "System-prompt body, including the output contract" })),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+			switch (params.action) {
+				case "list": {
+					const profiles = profileManager.list();
+					return {
+						content: [
+							{
+								type: "text",
+								text: profiles.length
+									? profiles
+										.map(
+												(profile) =>
+													`${profile.name}${profile.version ? ` v${profile.version}` : ""} — ${profile.description || "(no description)"}${profile.tools ? ` [tools: ${profile.tools}]` : ""}`,
+										)
+									.join("\n")
+									: "No profiles in agents/.",
+							},
+						],
+						details: { action: "list", profiles },
+					};
+				}
+				case "read": {
+					if (!params.name) throw new Error("'name' is required for read");
+					const content = profileManager.read(params.name);
+					if (content === null) throw new Error(`profile ${params.name} does not exist`);
+					return {
+						content: [{ type: "text", text: content }],
+						details: { action: "read", name: params.name },
+					};
+				}
+				case "create": {
+					if (!params.name) throw new Error("'name' is required for create");
+					if (!params.description) throw new Error("'description' is required for create");
+					if (!params.tools) throw new Error("'tools' is required for create");
+					if (!params.body) throw new Error("'body' is required for create");
+					const profile = profileManager.create({
+						name: params.name,
+						description: params.description,
+						tools: params.tools,
+						body: params.body,
+					});
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Created profile ${profile.name} v${profile.version} in agents/. Use it to spawn the subagent.`,
+							},
+						],
+						details: { action: "create", profile },
+					};
+				}
+			}
+		},
+		renderCall(args, theme, context) {
+			return renderToolCall("herdr_profile", args, theme, context);
 		},
 		renderResult(result, options, theme) {
 			return renderToolResult(result, options, theme);
