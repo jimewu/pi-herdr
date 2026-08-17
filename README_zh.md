@@ -37,7 +37,7 @@ subagent 用的 model 由 env 驅動（`PI_MODEL_DEFAULT` / `PI_MODEL_FALLBACK_H
 pi packages（extensions/skills）**不寫死在 subagent profile**——由 main agent 在每次 spawn 前**依任務動態選用**（package 目錄經常變動，寫死容易過時）。發現目錄來自環境變數 `PI_PACKAGES_DIR`，在 shell 啟動設定檔（例如 `~/.bashrc`；source 或重開 shell 後生效）export：
 
 ```bash
-# 例如 ~/.bashrc — 範例（本機範例）：/path/to/pi-packages
+# 例如 ~/.bashrc
 export PI_PACKAGES_DIR=/path/to/pi-packages
 ```
 

@@ -273,7 +273,7 @@ changelog: |
 
 目標：**subagent 只載入任務真正需要的工具資源**——內建工具由 profile 的 `tools` 白名單規範；pi packages（skills/tools）則由 **main agent 依當前任務動態決定**，不寫死在 profile（pi package 目錄經常變動，寫死容易過時）。不需要的 package 一律不掛，避免多餘 skill/tool 分散注意力、空耗 context。
 
-- 發現目錄由 env `PI_PACKAGES_DIR` 設定（export 在 shell 啟動設定檔，例如 `~/.bashrc`；本機範例值 `/path/to/pi-packages`）
+- 發現目錄由 env `PI_PACKAGES_DIR` 設定（export 在 shell 啟動設定檔，例如 `~/.bashrc`；值指向你的 pi packages 目錄，例如 `/path/to/pi-packages`）
 - **spawn 前（動態決定）**：
   1. `herdr_package list` 查看 `PI_PACKAGES_DIR` 當下有哪些 packages（name / description / keywords）
   2. 依**當前任務**選擇需要的 package(s)（不寫入 profile frontmatter）
@@ -293,7 +293,7 @@ changelog: |
 ```
 
 注意：
-- 本機路徑 `/path/to/pi-packages` 只是此機器的設定值，**skill 不硬編碼**——一律讀 `PI_PACKAGES_DIR`
+- 文檔中的路徑皆為範例，**skill 不硬編碼任何具體路徑/模型**——一律讀 `PI_PACKAGES_DIR`
 - shell 啟動設定檔只對**新開的 pane** 生效（同「Subagent model 選擇與 fallback」的注意事項）
 - 動態選用 packages 時**只挑任務真正需要的**：subagent 掛載的額外資源越少，context 越省
 

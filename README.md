@@ -37,7 +37,7 @@ Subagent models are driven by env vars (`PI_MODEL_DEFAULT`, `PI_MODEL_FALLBACK_H
 Pi packages (extensions/skills) are **not** pinned in subagent profiles — the main agent picks them **dynamically per task** before each spawn (the package folder changes often, so pinned names go stale). The discovery directory comes from the `PI_PACKAGES_DIR` env var, exported from your shell startup file (e.g. `~/.bashrc`; source it or open a new shell to take effect):
 
 ```bash
-# e.g. ~/.bashrc — sample (local example): /path/to/pi-packages
+# e.g. ~/.bashrc
 export PI_PACKAGES_DIR=/path/to/pi-packages
 ```
 
