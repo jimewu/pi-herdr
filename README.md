@@ -32,6 +32,10 @@ In a git repo where parallel subagents actually edit files, each subagent works 
 
 Subagent models are driven by env vars (`PI_MODEL_DEFAULT`, `PI_MODEL_FALLBACK_HIGH`, `PI_MODEL_FALLBACK_BULK`) exported from your shell startup file (e.g. `~/.bashrc`; source it or open a new shell) — the skill never hardcodes concrete model ids; it always reads the vars and asks the user when they are unset. `PI_MODEL_DEFAULT` is used whenever available; only when it is unavailable does the skill fall back, choosing between HIGH (quality / long context) and BULK (parallel / bulk) based on task type and concurrency. This only affects subagents, never the orchestrator session. See `SKILL.md` → *Subagent model 選擇與 fallback*.
 
+## Subagent thinking level
+
+Subagent thinking level is set at spawn via `--thinking <level>` in `agentArgs` (pi has no `/thinking` command, so it cannot be changed later in a headless flow). The orchestrator first picks the model (per the fallback rules above), then picks the thinking level by **task difficulty × model capability** — each model's *effective* levels differ by capability class: models with a full depth ladder (thinking budget), models that are effectively on/off only (off is fast but arithmetic-error prone; on costs minutes on hard tasks), and gateway-managed models where thinking cannot be turned off and levels mostly affect cost. Profiles carry a suggested `thinking` value per task type; the orchestrator adjusts it by difficulty and by the actual `PI_MODEL_*` model in use. See `SKILL.md` → *Subagent thinking level 選擇*.
+
 ## Pi-package discovery (`PI_PACKAGES_DIR`)
 
 Pi packages (extensions/skills) are **not** pinned in subagent profiles — the main agent picks them **dynamically per task** before each spawn (the package folder changes often, so pinned names go stale). The discovery directory comes from the `PI_PACKAGES_DIR` env var, exported from your shell startup file (e.g. `~/.bashrc`; source it or open a new shell to take effect):

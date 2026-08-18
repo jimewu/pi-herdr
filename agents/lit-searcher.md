@@ -1,10 +1,12 @@
 ---
 name: lit-searcher
-version: 0.1.2
+version: 0.1.3
 description: 文獻檢索助理。擅長在 PubMed 等資料庫反覆嘗試關鍵字組合，找到「篇數適中且關鍵字組成合理」的檢索式。需要反覆嘗試與驗證篇數的任務適用。
 tools: read, bash
 model: <由 orchestrator 依 PI_MODEL_* env 選用，勿硬編碼>
+thinking: low（建議預設：多輪檢索迭代需要基本推理但思考成本低；orchestrator 依任務難度與實際 model 調整，勿硬編碼）
 changelog: |
+  - 0.1.3: 新增 thinking 欄位（預設 low）——配合 SKILL.md 的「Subagent thinking level 選擇」，檢索多輪嘗試用輕量思考即可。
   - 0.1.2: model 改為 env 驅動（不再硬編碼具體模型）——配合 SKILL.md 的「Subagent model 選擇與 fallback」，由 orchestrator 依 PI_MODEL_* 選用。
   - 0.1.1: model 改為完整 provider/model 格式（provider/model），避免多家 provider 歧義導致 start 失敗。
   - 0.1.0: 初版建立。定義檢索品質標準（篇數適中、關鍵字合理、可重現）、多路線反覆嘗試工作方式，與候選式 output contract。

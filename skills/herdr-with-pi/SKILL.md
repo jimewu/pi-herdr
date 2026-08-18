@@ -228,6 +228,39 @@ echo $PI_MODEL_DEFAULT $PI_MODEL_FALLBACK_HIGH $PI_MODEL_FALLBACK_BULK
 - `--model` 一律用完整 `provider/model` 格式（見「量身訂做參數」的 ⚠️ 警告）——env 值本身應存完整格式
 - 用 BULK 前先確認任務不超過該 model 的 context / 輸出上限（依環境實測）
 - shell 啟動設定檔只對**新開的 pane** 生效；已開的 pane 要 `source ~/.bashrc`（或對應檔案）或重開
+- **選好 model 之後，再依任務難度設定 `--thinking`**（見下一節「Subagent thinking level 選擇」）——thinking 的「有效 level」因 model 而異，順序不能反
+
+## Subagent thinking level 選擇（依任務難度 × model 特性）
+
+subagent 的 thinking level 在 `herdr_agent start` 的 `agentArgs` 加 `--thinking <level>` 設定（pi 目前**沒有** `/thinking` 指令；spawn 後只能靠 TUI Shift+Tab 手動改，headless 流程以 spawn 時設定為準）。**先依「Subagent model 選擇與 fallback」決定 model，再照下表選 level**——同一難度在不同 model 上的「有效 level」不同，且依實際環境的 `PI_MODEL_*` model 而異（下表以**能力類別**描述，不列具體 model 名稱與測量數據；對某 model 不確定時先跑一題實測再定）。
+
+### model 能力類別 × thinking 特性
+
+| 能力類別 | off | 深度 level | 注意事項 |
+|---|---|---|---|
+| 支援完整深度階梯的 model（深度 = thinking budget） | ✅ 有效（think=0） | ✅ 各 level 對應不同預算上限（settings 的 `thinkingBudgets`；xhigh/max 併入 high） | 預算過低時 hard 題品質會掉（品質懸崖）；預算越高時間越長、邊際效益遞減——**越久不一定越準** |
+| 僅支援 on/off 的 model | ✅ 有效，但**算術類任務誤算風險高** | ❌ 深度參數被接受但不調整 | 品質優先時只能用 on（hard 題很慢）；時間優先時 off |
+| gateway 強制 thinking 的 model | ❌ 無效（關不掉） | 深度差異小（主要影響費率） | 選低 level 即可省錢 |
+
+### 難度 → thinking level 決策表（通常準則）
+
+| 任務難度 | 例子 | 建議 level |
+|---|---|---|
+| 機械/例行 | 目錄探查、格式轉換、關鍵字搜尋、簡單 Q&A | `off`（僅 on/off 的 model 遇算術任務改用 `minimal`/on） |
+| 一般 | 文獻檢索多輪嘗試、中等 code 修改、文件摘要 | `minimal`~`low` |
+| 複雜 | 跨檔案重構、設計決策、長文分析 | `medium`~`high` |
+| 品質關鍵/難題 | code review 深度審查、演算法實作、多步驟規劃 | `high`（僅 on/off 的 model 只能用 on） |
+
+實際選用：品質優先 → 高一階；時間/cost 優先 → 低一階。**不要對不支援的 model 硬設高 level**——例如僅 on/off 的 model 設 xhigh 會被 clamp 到 high，等同 on，毫無意義；gateway 強制 thinking 的 model 設 off 無效。
+
+### 範例
+
+```json
+{
+  "action": "start", "name": "sb-review", "kind": "pi", "pane": "<p1>",
+  "agentArgs": ["-t", "read,bash", "--model", "<依 PI_MODEL_* 選用>", "--thinking", "high"]
+}
+```
 
 ## Subagent profiles（agents/ 目錄）
 
@@ -307,6 +340,7 @@ changelog: |
 | `--skill <path>` | 強制載入指定 skill |
 | `-e <dir>` | 載入 pi package（extension/skill）；依任務動態指定（見「Subagent 工具配置（pi packages）」） |
 | `--model <pattern>` | 指定模型（完整 `provider/model`；未指定時依 `PI_MODEL_*` env 選用，見「Subagent model 選擇與 fallback」） |
+| `--thinking <level>` | 指定 thinking level（`off/minimal/low/medium/high/xhigh/max`；依任務難度 × model 特性選用，見「Subagent thinking level 選擇」） |
 
 原則：subagent 只需要任務相關的工具與身份，**不要背多餘上下文**。
 
