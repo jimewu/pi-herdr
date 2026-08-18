@@ -232,7 +232,7 @@ echo $PI_MODEL_DEFAULT $PI_MODEL_FALLBACK_HIGH $PI_MODEL_FALLBACK_BULK
 
 ## Subagent thinking level 選擇（依任務難度 × model 特性）
 
-subagent 的 thinking level 在 `herdr_agent start` 的 `agentArgs` 加 `--thinking <level>` 設定（pi 目前**沒有** `/thinking` 指令；spawn 後只能靠 TUI Shift+Tab 手動改，headless 流程以 spawn 時設定為準）。**先依「Subagent model 選擇與 fallback」決定 model，再照下表選 level**——同一難度在不同 model 上的「有效 level」不同，且依實際環境的 `PI_MODEL_*` model 而異（下表以**能力類別**描述，不列具體 model 名稱與測量數據；對某 model 不確定時先跑一題實測再定）。
+subagent 的 thinking level 在 `herdr_agent start` 的 `agentArgs` 加 `--thinking <level>` 設定（pi 目前**沒有** `/thinking` 指令；spawn 後只能靠 TUI Shift+Tab 手動改，headless 流程以 spawn 時設定為準）。**第一步：先依「Subagent model 選擇與 fallback」決定 model，再呼叫 `herdr_thinking` tool**——把 model 與任務難度丟進去，會回傳建議的 thinking level 與 `--model`/`--thinking` agentArgs，直接併入 `herdr_agent start`（與 `-t`、`-e` 併排）。下表是 tool 不可用時的參考（同樣以**能力類別**描述，不列具體 model 名稱與測量數據）。
 
 ### model 能力類別 × thinking 特性
 
@@ -252,6 +252,25 @@ subagent 的 thinking level 在 `herdr_agent start` 的 `agentArgs` 加 `--think
 | 品質關鍵/難題 | code review 深度審查、演算法實作、多步驟規劃 | `high`（僅 on/off 的 model 只能用 on） |
 
 實際選用：品質優先 → 高一階；時間/cost 優先 → 低一階。**不要對不支援的 model 硬設高 level**——例如僅 on/off 的 model 設 xhigh 會被 clamp 到 high，等同 on，毫無意義；gateway 強制 thinking 的 model 設 off 無效。
+
+### 未識別 model：probe → record（一次實測，永久生效）
+
+`herdr_thinking` 對查無能力資料的 model 回報 `unknown`，附保守預設與 probe 指示。此時跑一次**最小實測**、再把結果**寫回能力表**（`agents/thinking-classes.json`，`record` action 寫入，路徑可被 `PI_THINKING_CLASSES` 覆寫；已記錄的 model 之後直接查表、不再需要 probe）：
+
+```bash
+# probe：一次 one-shot 呼叫，確認 --thinking off 是否真的關掉思考
+pi --no-tools --model <model> --thinking off -p "<簡單問題>"
+# 讀 session transcript：off 之後若仍出現 reasoning 內容 → gateway-forced；
+# 完全沒有 reasoning → 該 model 支援 off（再依深度參數是否有效分 on-off / budget-ladder）
+```
+
+查證完成後：
+
+```json
+{ "action": "record", "model": "<model>", "class": "on-off|budget-ladder|gateway-forced", "evidence": "如何驗證的（通用描述，勿含機器資訊）" }
+```
+
+之後 `advise` 同一 model 直接取表，附註 `class from capability table`。能力表是 repo 資產，record 產生的改動由 orchestrator 正常 commit。
 
 ### 範例
 

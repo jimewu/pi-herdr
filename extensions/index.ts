@@ -452,6 +452,238 @@ function renderToolResult(result: any, options: { expanded: boolean; isPartial: 
 	return new Text(theme.fg("success", `✓ ${details.action || "done"}`), 0, 0);
 }
 
+export type ThinkingDifficulty =
+	| "mechanical"
+	| "general"
+	| "complex"
+	| "quality-critical";
+
+export type ThinkingModelClass =
+	| "budget-ladder" // off + per-level thinking budget (settings.json thinkingBudgets); depth actually changes
+	| "on-off" // only on/off meaningful; depth params accepted by the server but inert
+	| "gateway-forced" // thinking cannot be turned off; levels mostly affect cost
+	| "unknown";
+
+export interface ThinkingRule {
+	pattern?: RegExp; // bare model id match (model-design family)
+	providerPattern?: RegExp; // provider prefix match (serving behavior)
+	modelClass: ThinkingModelClass;
+	reason: string;
+}
+
+/**
+ * Layer 1: public serving gateways. Behavior is gateway-side, not model-side —
+ * the same model id can be on/off-capable on one endpoint and forced on another.
+ */
+const THINKING_PROVIDER_RULES: ThinkingRule[] = [
+	{
+		providerPattern: /^(opencode|opencode-go)$/i,
+		modelClass: "gateway-forced",
+		reason: "opencode gateway forces thinking; thinking:disabled is ignored (measured)",
+	},
+];
+
+/**
+ * Layer 2: model-design families (public model ids). Capability here describes
+ * the model's own thinking design, not any specific machine/provider.
+ */
+const THINKING_MODEL_RULES: ThinkingRule[] = [
+	{
+		pattern: /^deepseek-v4-/i,
+		modelClass: "on-off",
+		reason: "DeepSeek V4 family: reasoning_effort accepted but inert; only on/off is meaningful (measured)",
+	},
+	{
+		pattern: /^qwen3\.(5|6|8)-/i,
+		modelClass: "budget-ladder",
+		reason: "Qwen3.5/3.6/3.8 family: thinking_token_budget depth ladder, off works (measured)",
+	},
+	{
+		pattern: /^qwen3-/i,
+		modelClass: "budget-ladder",
+		reason: "Qwen3 family: thinking on/off + depth control (details depend on serving)",
+	},
+];
+
+/** Difficulty → pi thinking level, per model capability class. */
+export const THINKING_LEVELS_BY_CLASS: Record<
+	ThinkingModelClass,
+	Record<ThinkingDifficulty, string>
+> = {
+	// depth = thinking_token_budget; measured quality floor at minimal (1024), cliff below it
+	"budget-ladder": {
+		mechanical: "off",
+		general: "minimal",
+		complex: "medium",
+		"quality-critical": "high",
+	},
+	// any level >= minimal means "thinking on" for this class; the number is cosmetic
+	"on-off": {
+		mechanical: "off",
+		general: "low",
+		complex: "high",
+		"quality-critical": "high",
+	},
+	// off is impossible; pick cheap levels unless the task really needs depth
+	"gateway-forced": {
+		mechanical: "low",
+		general: "low",
+		complex: "high",
+		"quality-critical": "high",
+	},
+	// conservative defaults; orchestrator should probe once before relying on them
+	unknown: {
+		mechanical: "off",
+		general: "low",
+		complex: "medium",
+		"quality-critical": "high",
+	},
+};
+
+export function resolveThinkingModelClass(
+	model: string,
+	classes?: Record<string, ThinkingClassEntry>,
+): {
+	modelClass: ThinkingModelClass;
+	reason: string;
+	matched: string;
+	source: "provider" | "table" | "family" | "none";
+} {
+	const parts = model.split("/");
+	const provider = parts.length > 1 ? parts[0] : undefined;
+	const bare = parts.length > 1 ? parts.slice(1).join("/") : parts[0];
+	for (const rule of THINKING_PROVIDER_RULES) {
+		if (provider && rule.providerPattern?.test(provider)) {
+			return {
+				modelClass: rule.modelClass,
+				reason: rule.reason,
+				matched: `provider:${provider}`,
+				source: "provider",
+			};
+		}
+	}
+	const bareLower = bare.toLowerCase();
+	if (classes) {
+		for (const [key, entry] of Object.entries(classes)) {
+			const keyLower = key.toLowerCase();
+			if (bareLower === keyLower || bareLower.startsWith(keyLower + "-")) {
+				return {
+					modelClass: entry.class,
+					reason: entry.evidence || `recorded capability for ${key}`,
+					matched: key,
+					source: "table",
+				};
+			}
+		}
+	}
+	for (const rule of THINKING_MODEL_RULES) {
+		if (rule.pattern?.test(bareLower)) {
+			return {
+				modelClass: rule.modelClass,
+				reason: rule.reason,
+				matched: bare,
+				source: "family",
+			};
+		}
+	}
+	return {
+		modelClass: "unknown",
+		reason: "unrecognized model; probe once to verify thinking behavior before relying on it",
+		matched: bare,
+		source: "none",
+	};
+}
+
+export interface ThinkingAdvice {
+	model: string; // as given
+	bareModel: string;
+	modelClass: ThinkingModelClass;
+	difficulty: ThinkingDifficulty;
+	thinkingLevel: string;
+	agentArgs: string[]; // ["--model", <model>, "--thinking", <level>]
+	notes: string[];
+}
+
+export function computeThinkingAgentArgs(
+	model: string,
+	difficulty: ThinkingDifficulty,
+	opts: { needsArithmetic?: boolean; classes?: Record<string, ThinkingClassEntry> } = {},
+): ThinkingAdvice {
+	const { modelClass, reason, source } = resolveThinkingModelClass(
+		model,
+		opts.classes,
+	);
+	const notes: string[] = [
+		`modelClass=${modelClass}; ${reason}`,
+		...(source === "table" ? ["class from capability table (recorded evidence)"] : []),
+	];
+	let thinkingLevel = THINKING_LEVELS_BY_CLASS[modelClass][difficulty];
+	if (modelClass === "on-off" && thinkingLevel !== "off" && thinkingLevel !== "low") {
+		notes.push("for this class, minimal~high all mean thinking on (depth params are inert)");
+	}
+	if (modelClass === "on-off" && difficulty === "mechanical" && opts.needsArithmetic) {
+		thinkingLevel = "low";
+		notes.push("arithmetic-sensitive task: off risks miscalculation, upgraded to on (low)");
+	}
+	if (modelClass === "gateway-forced") {
+		if (thinkingLevel === "off") thinkingLevel = "low";
+		notes.push("this gateway cannot disable thinking; off is unavailable, closest level used");
+	}
+	if (modelClass === "unknown" && difficulty !== "mechanical") {
+		notes.push("unrecognized model: probe once and adjust level if needed");
+	}
+	return {
+		model,
+		bareModel: model.split("/").slice(-1)[0],
+		modelClass,
+		difficulty,
+		thinkingLevel,
+		agentArgs: ["--model", model, "--thinking", thinkingLevel],
+		notes,
+	};
+}
+
+export interface ThinkingClassEntry {
+	class: ThinkingModelClass;
+	evidence?: string;
+}
+export interface ThinkingClassesFile {
+	version: number;
+	entries: Record<string, ThinkingClassEntry>;
+}
+
+/** Default capability-table path: <repo>/agents/thinking-classes.json. */
+export const DEFAULT_THINKING_CLASSES_PATH = join(extensionDir, "..", "agents", "thinking-classes.json");
+
+export function thinkingClassesPath(): string {
+	return process.env.PI_THINKING_CLASSES || DEFAULT_THINKING_CLASSES_PATH;
+}
+
+export function loadThinkingClasses(path: string): Record<string, ThinkingClassEntry> {
+	try {
+		if (!existsSync(path)) return {};
+		const parsed = JSON.parse(readFileSync(path, "utf8")) as ThinkingClassesFile;
+		return parsed.entries ?? {};
+	} catch {
+		return {};
+	}
+}
+
+export function saveThinkingClass(
+	path: string,
+	model: string,
+	modelClass: ThinkingModelClass,
+	evidence?: string,
+): { entries: Record<string, ThinkingClassEntry>; path: string } {
+	const entries = loadThinkingClasses(path);
+	entries[model] = { class: modelClass, ...(evidence ? { evidence } : {}) };
+	const sorted = Object.fromEntries(Object.entries(entries).sort(([a], [b]) => a.localeCompare(b)));
+	const data: ThinkingClassesFile = { version: 1, entries: sorted };
+	mkdirSync(dirname(path), { recursive: true });
+	writeFileSync(path, JSON.stringify(data, null, 2) + "\n", "utf8");
+	return { entries: sorted, path };
+}
+
 export default function (pi: ExtensionAPI) {
 	if (process.env.HERDR_ENV !== "1" || !process.env.HERDR_PANE_ID) return;
 
@@ -1105,6 +1337,102 @@ export default function (pi: ExtensionAPI) {
 		},
 		renderCall(args, theme, context) {
 			return renderToolCall("herdr_package", args, theme, context);
+		},
+		renderResult(result, options, theme) {
+			return renderToolResult(result, options, theme);
+		},
+	});
+
+
+	pi.registerTool({
+		name: "herdr_thinking",
+		label: "Herdr Thinking",
+		description:
+			"Advise or record subagent thinking levels for herdr_agent start. advise: take the model and the task difficulty and return the recommended thinking level plus spawn-ready --model/--thinking agentArgs; the model capability class is resolved from provider/gateway rules first (serving behavior can override model design), then the recorded capability table (agents/thinking-classes.json, extendable via record), then public model-design families (deepseek-v4-* -> on/off only, qwen3.5/3.6/3.8 -> thinking-budget ladder). Unknown models get conservative defaults plus a note to probe once. record: persist a verified capability class for a model into the capability table (path: $PI_THINKING_CLASSES or <repo>/agents/thinking-classes.json) so later advise calls skip probing. Call right before herdr_agent start, after the model was chosen per the PI_MODEL_* rules in the herdr-with-pi skill.",
+		promptSnippet: "Compute --thinking level and --model/--thinking agentArgs for a subagent spawn from model + task difficulty",
+		promptGuidelines: [
+			"Before spawning a subagent, after choosing the model from PI_MODEL_* env rules, call herdr_thinking with action=advise, the model and the task difficulty tier to get the recommended thinking level and the --model/--thinking agentArgs entries.",
+			"Merge the returned agentArgs entries into herdr_agent start agentArgs together with -t (profile tools) and any -e (pi packages) entries; keep all entries single-line and shell-safe.",
+			"Read the returned notes: e.g. for on/off-only models minimal~high all mean thinking on; for gateway-forced models off is impossible.",
+			"When advise reports an unrecognized model, probe it once (a one-shot call with --thinking off; check whether reasoning content still appears in the session transcript) and persist the verified class with action=record so later spawns skip probing.",
+		],
+		parameters: Type.Object({
+			action: StringEnum(["advise", "record"] as const, {
+				description: "advise = recommend thinking level + agentArgs for a spawn; record = persist a verified capability class",
+			}),
+			model: Type.String({
+				description: "Target model: full `provider/model` or bare model id",
+			}),
+			difficulty: Type.Optional(
+				StringEnum(
+					["mechanical", "general", "complex", "quality-critical"] as const,
+					{ description: "Task difficulty tier (required for advise; see the herdr-with-pi skill decision table)" },
+				),
+			),
+			needsArithmetic: Type.Optional(
+				Type.Boolean({
+					description:
+						"Task involves precise arithmetic (probabilities, calculations). Only meaningful for on/off-only models at mechanical difficulty (off risks miscalculation).",
+				}),
+			),
+			class: Type.Optional(
+				StringEnum(
+					["budget-ladder", "on-off", "gateway-forced", "unknown"] as const,
+					{ description: "Verified capability class (required for record)" },
+				),
+			),
+			evidence: Type.Optional(
+				Type.String({
+					description: "How the class was verified (required for record; keep it generic, no machine-specific info)",
+				}),
+			),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+			if (params.action === "record") {
+				if (!params.class) throw new Error("'class' is required for record");
+				const { entries, path } = saveThinkingClass(
+					thinkingClassesPath(),
+					params.model,
+					params.class,
+					params.evidence,
+				);
+				return {
+					content: [
+						{
+							type: "text",
+							text: `recorded ${params.model} -> ${params.class} in ${path}\nentries: ${Object.keys(entries).join(", ")}`,
+						},
+					],
+					details: { action: "record", path, model: params.model, modelClass: params.class, entries },
+				};
+			}
+			if (!params.difficulty) throw new Error("'difficulty' is required for advise");
+			const classes = loadThinkingClasses(thinkingClassesPath());
+			const advice = computeThinkingAgentArgs(params.model, params.difficulty, {
+				needsArithmetic: params.needsArithmetic ?? false,
+				classes,
+			});
+			const text = [
+				`model: ${advice.model}`,
+				`bareModel: ${advice.bareModel}`,
+				`modelClass: ${advice.modelClass}`,
+				`difficulty: ${advice.difficulty}`,
+				`thinkingLevel: ${advice.thinkingLevel}`,
+				`agentArgs: ${advice.agentArgs.map((a) => JSON.stringify(a)).join(" ")}`,
+				...(advice.modelClass === "unknown"
+					? [
+							"probe: run one shot with --thinking off and check whether reasoning content still appears in the session transcript; then herdr_thinking action=record to persist the verified class.",
+					  ]
+					: []),
+				...(advice.notes.length ? [`notes:`, ...advice.notes.map((n) => `  - ${n}`)] : []),
+			].join("\n");
+			return {
+				content: [{ type: "text", text }],
+				details: advice,
+			};
+		},
+		renderCall(args, theme, context) {
+			return renderToolCall("herdr_thinking", args, theme, context);
 		},
 		renderResult(result, options, theme) {
 			return renderToolResult(result, options, theme);

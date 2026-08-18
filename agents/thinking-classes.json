@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "entries": {
+    "deepseek-v4-flash": {
+      "class": "on-off",
+      "evidence": "measured: off produces no reasoning content; reasoning_effort is accepted but does not change reasoning depth"
+    },
+    "deepseek-v4-pro": {
+      "class": "on-off",
+      "evidence": "same DeepSeek V4 generation as deepseek-v4-flash: only on/off is meaningful"
+    },
+    "qwen3.8-27b": {
+      "class": "budget-ladder",
+      "evidence": "measured: thinking_token_budget caps reasoning length per request; off produces no reasoning content"
+    },
+    "qwen3.6-35b-a3b": {
+      "class": "budget-ladder",
+      "evidence": "same Qwen3.6/3.8 generation as qwen3.8-27b: budget ladder with working on/off"
+    }
+  }
+}

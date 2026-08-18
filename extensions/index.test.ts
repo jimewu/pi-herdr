@@ -2,7 +2,16 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import herdrExtension, { createPackageScanner, createProfileManager } from "./index";
+const repoDir = process.cwd();
+
+import herdrExtension, {
+	createPackageScanner,
+	createProfileManager,
+	computeThinkingAgentArgs,
+	resolveThinkingModelClass,
+	loadThinkingClasses,
+	saveThinkingClass,
+} from "./index";
 
 const currentPane = {
 	pane_id: "w1:p1",
@@ -74,7 +83,14 @@ describe("pi-herdr", () => {
 
 	test("registers separate layout, pane, and agent primitives", () => {
 		const tools = registerTools(() => ({}));
-		expect([...tools.keys()]).toEqual(["herdr_layout", "herdr_pane", "herdr_agent", "herdr_profile", "herdr_package"]);
+		expect([...tools.keys()]).toEqual([
+			"herdr_layout",
+			"herdr_pane",
+			"herdr_agent",
+			"herdr_profile",
+			"herdr_package",
+			"herdr_thinking",
+		]);
 		expect(tools.get("herdr_layout").description).toContain("Workspaces contain tabs; tabs contain panes");
 		expect(tools.get("herdr_pane").description).toContain("ordinary processes");
 		expect(tools.get("herdr_agent").description).toContain("existing Herdr pane");
@@ -534,5 +550,89 @@ describe("herdr_package (pi-package provisioning)", () => {
 			.execute("test", { action: "resolve", packages: ["book-to-skill"] }, undefined, undefined, {});
 		expect(result.details.envSet).toBe(false);
 		expect(result.content[0].text).toContain("PI_PACKAGES_DIR is not set");
+	});
+});
+
+describe("herdr_thinking (thinking-level advisor)", () => {
+	test("deepseek-v4-flash is on/off only; mechanical -> off, general -> low", () => {
+		const mech = computeThinkingAgentArgs("deepseek-v4-flash", "mechanical");
+		expect(mech.modelClass).toBe("on-off");
+		expect(mech.thinkingLevel).toBe("off");
+		expect(mech.agentArgs).toEqual(["--model", "deepseek-v4-flash", "--thinking", "off"]);
+		const gen = computeThinkingAgentArgs("deepseek-v4-flash", "general");
+		expect(gen.thinkingLevel).toBe("low");
+	});
+
+	test("on/off-only model: arithmetic-sensitive mechanical task upgrades off -> low", () => {
+		const advice = computeThinkingAgentArgs("deepseek-v4-flash", "mechanical", { needsArithmetic: true });
+		expect(advice.thinkingLevel).toBe("low");
+		expect(advice.notes.some((n) => n.includes("arithmetic"))).toBe(true);
+	});
+
+	test("provider prefix is stripped for family matching: jllm2-ds4/deepseek-v4-flash is on-off", () => {
+		const advice = computeThinkingAgentArgs("jllm2-ds4/deepseek-v4-flash", "complex");
+		expect(advice.modelClass).toBe("on-off");
+		expect(advice.thinkingLevel).toBe("high");
+	});
+
+	test("provider/gateway rule wins over model design: opencode-go forces thinking", () => {
+		const advice = computeThinkingAgentArgs("opencode-go/deepseek-v4-flash", "mechanical");
+		expect(advice.modelClass).toBe("gateway-forced");
+		expect(advice.thinkingLevel).toBe("low"); // off impossible -> upgraded
+		expect(advice.notes.some((n) => n.includes("cannot disable"))).toBe(true);
+	});
+
+	test("Qwen3.8 family is a budget ladder; quality-critical -> high, mechanical -> off", () => {
+		const hard = computeThinkingAgentArgs("cyankiwi/Qwen3.8-27B-AWQ-INT4", "quality-critical");
+		expect(hard.modelClass).toBe("budget-ladder");
+		expect(hard.thinkingLevel).toBe("high");
+		const mech = computeThinkingAgentArgs("qwen3.8-27b", "mechanical");
+		expect(mech.thinkingLevel).toBe("off");
+	});
+
+	test("unknown models get conservative defaults plus a probe note", () => {
+		const advice = computeThinkingAgentArgs("some-new-model/xyz", "complex");
+		expect(advice.modelClass).toBe("unknown");
+		expect(advice.thinkingLevel).toBe("medium");
+		expect(advice.notes.some((n) => n.includes("probe"))).toBe(true);
+	});
+
+	test("resolveThinkingModelClass reports the matched family", () => {
+		const r = resolveThinkingModelClass("deepseek-v4-pro");
+		expect(r.modelClass).toBe("on-off");
+		expect(r.reason).toContain("DeepSeek V4");
+	});
+
+	test("capability table is loaded from the repo file and used for classification", () => {
+		const classes = loadThinkingClasses(join(repoDir, "agents", "thinking-classes.json"));
+		expect(classes["deepseek-v4-flash"]?.class).toBe("on-off");
+		expect(classes["qwen3.8-27b"]?.class).toBe("budget-ladder");
+		const advice = computeThinkingAgentArgs("some-unknown-9b", "quality-critical", { classes });
+		expect(advice.modelClass).toBe("unknown");
+	});
+
+	test("recorded class overrides family rules and persists", () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-think-"));
+		try {
+			const f = join(dir, "thinking-classes.json");
+			const { entries } = saveThinkingClass(f, "newmodel-7b", "gateway-forced", "probed: reasoning emitted with off");
+			expect(entries["newmodel-7b"].class).toBe("gateway-forced");
+			const reloaded = loadThinkingClasses(f);
+			expect(reloaded["newmodel-7b"].evidence).toContain("probed");
+			// recorded class wins over family rule (name contains deepseek would otherwise be on-off)
+			saveThinkingClass(f, "deepseek-v4-flash", "gateway-forced", "probed override");
+			const advice = computeThinkingAgentArgs("deepseek-v4-flash", "mechanical", { classes: loadThinkingClasses(f) });
+			expect(advice.modelClass).toBe("gateway-forced");
+			expect(advice.thinkingLevel).toBe("low"); // off impossible
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("computeThinkingAgentArgs reports table-sourced classes", () => {
+		const classes = { "qwen3.8-27b": { class: "budget-ladder" as const } };
+		const advice = computeThinkingAgentArgs("qwen3.8-27b-awq-int4", "general", { classes });
+		expect(advice.modelClass).toBe("budget-ladder");
+		expect(advice.notes.some((n) => n.includes("capability table"))).toBe(true);
 	});
 });
