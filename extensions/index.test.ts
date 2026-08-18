@@ -11,6 +11,7 @@ import herdrExtension, {
 	resolveThinkingModelClass,
 	loadThinkingClasses,
 	saveThinkingClass,
+	thinkingClassesPath,
 } from "./index";
 
 const currentPane = {
@@ -640,5 +641,46 @@ describe("herdr_thinking (thinking-level advisor)", () => {
 		const advice = computeThinkingAgentArgs("qwen3.8-27b-awq-int4", "general", { classes });
 		expect(advice.modelClass).toBe("budget-ladder");
 		expect(advice.notes.some((n) => n.includes("capability table"))).toBe(true);
+	});
+
+	test("list action shows known models from the capability table ($PI_THINKING_CLASSES)", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-think-list-"));
+		const f = join(dir, "classes.json");
+		saveThinkingClass(f, "alpha-1b", "on-off", "probed locally");
+		saveThinkingClass(f, "beta-2b", "budget-ladder");
+		const prev = process.env.PI_THINKING_CLASSES;
+		try {
+			process.env.PI_THINKING_CLASSES = f;
+			const tools = registerTools(() => ({}));
+			const result = await tools.get("herdr_thinking").execute("t1", { action: "list" }, undefined, undefined, undefined);
+			const text = result.content[0].text;
+			expect(text).toContain("alpha-1b -> on-off");
+			expect(text).toContain("beta-2b -> budget-ladder");
+			expect(result.details.action).toBe("list");
+			expect(result.details.entries["alpha-1b"].evidence).toBe("probed locally");
+		} finally {
+			if (prev === undefined) delete process.env.PI_THINKING_CLASSES;
+			else process.env.PI_THINKING_CLASSES = prev;
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("environment override PI_THINKING_CLASSES changes the advised table", () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-think-env-"));
+		const f = join(dir, "classes.json");
+		saveThinkingClass(f, "gamma-3b", "gateway-forced", "env override");
+		const prev = process.env.PI_THINKING_CLASSES;
+		try {
+			process.env.PI_THINKING_CLASSES = f;
+			const advice = computeThinkingAgentArgs("gamma-3b", "mechanical", {
+				classes: loadThinkingClasses(thinkingClassesPath()),
+			});
+			expect(advice.modelClass).toBe("gateway-forced");
+			expect(advice.thinkingLevel).toBe("low");
+		} finally {
+			if (prev === undefined) delete process.env.PI_THINKING_CLASSES;
+			else process.env.PI_THINKING_CLASSES = prev;
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });

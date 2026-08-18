@@ -1348,8 +1348,8 @@ export default function (pi: ExtensionAPI) {
 		name: "herdr_thinking",
 		label: "Herdr Thinking",
 		description:
-			"Advise or record subagent thinking levels for herdr_agent start. advise: take the model and the task difficulty and return the recommended thinking level plus spawn-ready --model/--thinking agentArgs; the model capability class is resolved from provider/gateway rules first (serving behavior can override model design), then the recorded capability table (agents/thinking-classes.json — gitignored, local-only; format documented by agents/thinking-classes.example.json; path overridable via $PI_THINKING_CLASSES — extendable via record), then public model-design families (deepseek-v4-* -> on/off only, qwen3.5/3.6/3.8 -> thinking-budget ladder). Unknown models get conservative defaults plus a note to probe once. record: persist a verified capability class for a model into the capability table (path: $PI_THINKING_CLASSES or <repo>/agents/thinking-classes.json) so later advise calls skip probing. Call right before herdr_agent start, after the model was chosen per the PI_MODEL_* rules in the herdr-with-pi skill.",
-		promptSnippet: "Compute --thinking level and --model/--thinking agentArgs for a subagent spawn from model + task difficulty",
+			"Advise, list or record subagent thinking levels for herdr_agent start. advise: take the model and the task difficulty and return the recommended thinking level plus spawn-ready --model/--thinking agentArgs; the model capability class is resolved from provider/gateway rules first (serving behavior can override model design), then the recorded capability table (location: $PI_THINKING_CLASSES, or <repo>/agents/thinking-classes.json when unset — gitignored, local-only; format documented by agents/thinking-classes.example.json), then public model-design families (deepseek-v4-* -> on/off only, qwen3.5/3.6/3.8 -> thinking-budget ladder). Unknown models get conservative defaults plus a note to probe once. list: show the known models currently in the capability table (with their classes and evidence) so you can tell whether a model's capability is already known. record: persist a verified capability class for a model into the capability table so later advise calls skip probing (the table records environment-measured behavior — keep it local, never commit). Call right before herdr_agent start, after the model was chosen per the PI_MODEL_* rules in the herdr-with-pi skill.",
+		promptSnippet: "Advise/list/record subagent thinking levels (--model/--thinking agentArgs) from model + task difficulty + local capability table",
 		promptGuidelines: [
 			"Before spawning a subagent, after choosing the model from PI_MODEL_* env rules, call herdr_thinking with action=advise, the model and the task difficulty tier to get the recommended thinking level and the --model/--thinking agentArgs entries.",
 			"Merge the returned agentArgs entries into herdr_agent start agentArgs together with -t (profile tools) and any -e (pi packages) entries; keep all entries single-line and shell-safe.",
@@ -1358,13 +1358,16 @@ export default function (pi: ExtensionAPI) {
 			"Read the returned notes: e.g. for on/off-only models minimal~high all mean thinking on; for gateway-forced models off is impossible.",
 		],
 		parameters: Type.Object({
-			action: StringEnum(["advise", "record"] as const, {
-				description: "advise = recommend thinking level + agentArgs for a spawn; record = persist a verified capability class",
-			}),
-			model: Type.String({
+			action: StringEnum(["advise", "list", "record"] as const, {
 				description:
-					"Target model: full `provider/model` or bare model id. For record, only the bare model id is stored (provider/gateway prefix is stripped).",
+					"advise = recommend thinking level + agentArgs for a spawn; list = show models already known in the capability table; record = persist a verified capability class",
 			}),
+			model: Type.Optional(
+				Type.String({
+					description:
+						"Target model: full `provider/model` or bare model id (required for advise and record; for record only the bare id is stored — provider/gateway prefix is stripped)",
+				}),
+			),
 			difficulty: Type.Optional(
 				StringEnum(
 					["mechanical", "general", "complex", "quality-critical"] as const,
@@ -1390,6 +1393,19 @@ export default function (pi: ExtensionAPI) {
 			),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+			if (params.action === "list") {
+				const entries = loadThinkingClasses(thinkingClassesPath());
+				const text = Object.keys(entries).length
+					? Object.entries(entries)
+							.map(([m, e]) => `${m} -> ${e.class}${e.evidence ? ` (${e.evidence})` : ""}`)
+							.join("\n")
+					: "(capability table is empty; unknown models fall back to family rules, or probe once and record them)";
+				return {
+					content: [{ type: "text", text }],
+					details: { action: "list", path: thinkingClassesPath(), entries },
+				};
+			}
+			if (!params.model) throw new Error("'model' is required for advise and record");
 			if (params.action === "record") {
 				if (!params.class) throw new Error("'class' is required for record");
 				// table entries are keyed by bare model id; strip any provider/gateway prefix

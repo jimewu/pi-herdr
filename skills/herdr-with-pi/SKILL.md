@@ -253,6 +253,12 @@ subagent 的 thinking level 在 `herdr_agent start` 的 `agentArgs` 加 `--think
 
 實際選用：品質優先 → 高一階；時間/cost 優先 → 低一階。**不要對不支援的 model 硬設高 level**——例如僅 on/off 的 model 設 xhigh 會被 clamp 到 high，等同 on，毫無意義；gateway 強制 thinking 的 model 設 off 無效。
 
+### 能力表在哪、如何查詢已知模型
+
+- 能力表位置由固定 env **`PI_THINKING_CLASSES`** 決定（寫在 shell 啟動設定檔，例如 `~/.profile`；未設定時回退 `<repo>/agents/thinking-classes.json`，該路徑已 gitignored）。
+- **spawn 前先查**：`echo $PI_THINKING_CLASSES` 確認位置；`herdr_thinking` action=`list` 列出已知 model（含類別與驗證描述）；對特定 model 不確定時 action=`advise` 直接問建議 level。
+- 表檔是環境實測資料（local-only、勿 commit）；格式參考公開的 `agents/thinking-classes.example.json`。
+
 ### 未識別 model：probe → record（一次實測，永久生效）
 
 `herdr_thinking` 對查無能力資料的 model 回報 `unknown`，附保守預設與 probe 指示。此時跑一次**最小實測**、再把結果**寫回能力表**（`agents/thinking-classes.json`，`record` action 寫入，路徑可被 `PI_THINKING_CLASSES` 覆寫；已記錄的 model 之後直接查表、不再需要 probe）。**能力表是環境實測資料，已加入 `.gitignore`（local-only、不要 commit）**——格式參考公開的 `agents/thinking-classes.example.json`，想完全移出 repo 就把 `PI_THINKING_CLASSES` 指向私人路徑：
