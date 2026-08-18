@@ -12,6 +12,34 @@
 - **`skills/herdr-with-pi/SKILL.md`** — **herdr-with-pi** 策略層。告訴 pi **何時**建議分派 subagent（並行探索、黑箱研究、上下文隔離）、**怎麼**跑標準工作流（開 tab → start → prompt → 監督 → 關閉）、以及**怎麼用**下面的 profiles。這**不是** Herdr 官方 skill（以 CLI 為中心、opt-in）；這是本地重寫版。
 - **`agents/`** — 可重用的 subagent profiles（YAML frontmatter + system prompt body）。每個 profile 都是**針對性**的：`tools` 欄位成為 `-t` 白名單，body 為 system prompt。pi packages **不寫死在 profile**——由 main agent 依當前任務透過 `herdr_package` 動態選用（package 目錄常變動），spawn 時解析為 `-e <dir>` 掛載——subagent 只帶任務需要的資源、不多餘。spawn 前 orchestrator 會先透過 `herdr_profile list` 檢查 `agents/`：既有 profile **只有在完全適用時**（領域/語言/職責/工具全部吻合）才直接沿用，否則用 `herdr_profile create` 依需求建立新 profile，之後成為資產供同型別任務使用。
 
+## 環境變數（Environment variables）
+
+pi-herdr 由**你的 shell 啟動設定檔**（例如 `~/.bashrc`；編輯後 source 或重開 shell）export 的環境變數驅動。skill 與 tools 在執行時讀取這些變數，**repo 不硬編碼**；數值屬機器專屬設定，請寫在自己的啟動設定檔、勿 commit。
+
+| 變數 | 用途 | 回退 / 備註 |
+|---|---|---|
+| `PI_MODEL_DEFAULT` | subagent 預設 model（完整 `provider/model`），可用時一律使用 | 未設定 → 請使用者設定（skill 不猜測） |
+| `PI_MODEL_FALLBACK_HIGH` | DEFAULT 不可用時的品質/長上下文 fallback（單一併發） | — |
+| `PI_MODEL_FALLBACK_BULK` | 大量並行/品質普通的 fallback model | — |
+| `PI_PACKAGES_DIR` | subagent pi packages 的發現目錄（`herdr_package list`/`resolve`） | 未設定 → 跳過工具配置；僅 profile 的 `-t` 白名單生效 |
+| `PI_THINKING_CLASSES` | `herdr_thinking` 使用的本地 model 能力表路徑（環境實測資料；gitignored、勿 commit） | 未設定 → `<repo>/agents/thinking-classes.json`（gitignored）；格式見 `agents/thinking-classes.example.json` |
+| `HERDR_ENV` | pi 在 Herdr 管理的 pane 內時為 `1` | 由 Herdr 自動設定，非使用者設定 |
+| `HERDR_PANE_ID` | 目前 Herdr pane 的 opaque id | 由 Herdr 自動設定，非使用者設定 |
+
+注意事項：
+- 這些變數**只影響 subagent**，不影響 orchestrator session 自身的 model/thinking 設定。
+- shell 啟動設定檔只對**新開的 pane** 生效；已開的 pane 要 `source` 啟動設定檔（或重開）。
+- 通用範例（數值皆為 placeholder，請在自己的啟動設定檔填實際值）：
+
+```bash
+# 例如 ~/.bashrc
+export PI_MODEL_DEFAULT=provider/default-model
+export PI_MODEL_FALLBACK_HIGH=provider/high-model
+export PI_MODEL_FALLBACK_BULK=provider/bulk-model
+export PI_PACKAGES_DIR=/path/to/pi-packages
+export PI_THINKING_CLASSES=/path/to/private/thinking-classes.json
+```
+
 ## 架構分工
 
 ```
@@ -30,6 +58,8 @@
 
 ## Subagent model fallback
 
+（所有 env 變數集中列在上方「環境變數」表。）
+
 subagent 用的 model 由 env 驅動（`PI_MODEL_DEFAULT` / `PI_MODEL_FALLBACK_HIGH` / `PI_MODEL_FALLBACK_BULK`），在 shell 啟動設定檔（例如 `~/.bashrc`；source 或重開 shell 後生效）export——skill **不硬編碼具體模型**，一律讀取變數，未設定時請使用者設定。`PI_MODEL_DEFAULT` 可用時一律用它；僅當它不可用時才 fallback，依任務類型與併發在 HIGH（品質/長上下文）與 BULK（批量/並行）之間選。只影響 subagent，不影響 orchestrator session。見 `SKILL.md` → *Subagent model 選擇與 fallback*。
 
 ## Subagent thinking level
@@ -37,6 +67,8 @@ subagent 用的 model 由 env 驅動（`PI_MODEL_DEFAULT` / `PI_MODEL_FALLBACK_H
 subagent 的 thinking level 在 spawn 時用 `agentArgs` 的 `--thinking <level>` 設定（pi 沒有 `/thinking` 指令，headless 流程中 spawn 後無法再改）。orchestrator 選好 model 後呼叫 **`herdr_thinking` tool**：帶入 model 與任務難度，回傳建議 level 與 `--model`/`--thinking` agentArgs；model 分類依 provider/gateway 規則 → 已記錄能力表（`agents/thinking-classes.json`，gitignored/local-only、環境實測資料，**不可 commit**）→ model 設計家族（`deepseek-v4-*` 僅 on/off、`qwen3.5/3.6/3.8` 深度階梯）。未識別 model 給保守預設 + probe 指示，probe 一次後以 `action=record` 寫回能力表，後續 spawn 不再重測。profile 的 `thinking` 建議值作為 fallback。見 `SKILL.md` → *Subagent thinking level 選擇*。
 
 ## Pi-package 發現目錄（`PI_PACKAGES_DIR`）
+
+（env 變數集中列在上方「環境變數」表。）
 
 pi packages（extensions/skills）**不寫死在 subagent profile**——由 main agent 在每次 spawn 前**依任務動態選用**（package 目錄經常變動，寫死容易過時）。發現目錄來自環境變數 `PI_PACKAGES_DIR`，在 shell 啟動設定檔（例如 `~/.bashrc`；source 或重開 shell 後生效）export：
 

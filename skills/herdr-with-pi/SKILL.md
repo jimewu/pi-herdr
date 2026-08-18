@@ -255,7 +255,7 @@ subagent 的 thinking level 在 `herdr_agent start` 的 `agentArgs` 加 `--think
 
 ### 能力表在哪、如何查詢已知模型
 
-- 能力表位置由固定 env **`PI_THINKING_CLASSES`** 決定（寫在 shell 啟動設定檔，例如 `~/.profile`；未設定時回退 `<repo>/agents/thinking-classes.json`，該路徑已 gitignored）。
+- 能力表位置由固定 env **`PI_THINKING_CLASSES`** 決定（寫在 shell 啟動設定檔（例如 `~/.bashrc`，source 或重開後生效）；未設定時回退 `<repo>/agents/thinking-classes.json`，該路徑已 gitignored）。完整 env 清單見 README → *環境變數*。
 - **spawn 前先查**：`echo $PI_THINKING_CLASSES` 確認位置；`herdr_thinking` action=`list` 列出已知 model（含類別與驗證描述）；對特定 model 不確定時 action=`advise` 直接問建議 level。
 - 表檔是環境實測資料（local-only、勿 commit）；格式參考公開的 `agents/thinking-classes.example.json`。
 

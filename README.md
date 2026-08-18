@@ -12,6 +12,34 @@ A **self-contained pi extension** for multi-agent orchestration with [Herdr](htt
 - **`skills/herdr-with-pi/SKILL.md`** — the **herdr-with-pi** strategy layer. It tells pi *when* to suggest delegating to subagents (parallel exploration, black-box research, context isolation), *how* to run the standard workflow (tab → start → prompt → supervise → close), and *how* to use the profiles below. This is **not** the upstream Herdr skill (CLI-focused, opt-in); it is a local rewrite.
 - **`agents/`** — reusable subagent profiles (YAML frontmatter + system-prompt body). Each profile is targeted: its `tools` field becomes the `-t` allow-list and its body is the system prompt. Pi packages are **not** pinned in profiles — the main agent picks them dynamically per task via `herdr_package` (the package folder changes often), resolving them to `-e <dir>` flags at spawn so subagents carry no extra context. Before spawning, the orchestrator checks `agents/` via `herdr_profile list`: an existing profile is reused only when it is *exactly* fit (domain/language/responsibility/tools all match); otherwise a new profile is created with `herdr_profile create` and becomes an asset for later tasks.
 
+## Environment variables
+
+pi-herdr is driven by environment variables exported from your **shell startup file** (e.g. `~/.bashrc` — source it or open a new shell after editing). The skill and tools read these variables at runtime; they are never hardcoded in the repo, and concrete values are machine-specific, so export them locally and never commit them.
+
+| Variable | Purpose | Fallback / notes |
+|---|---|---|
+| `PI_MODEL_DEFAULT` | Subagent default model (full `provider/model`), used whenever available | unset → ask the user (skill never guesses) |
+| `PI_MODEL_FALLBACK_HIGH` | Quality / long-context fallback model when DEFAULT is unavailable (single concurrency) | — |
+| `PI_MODEL_FALLBACK_BULK` | Bulk / parallel fallback model (many concurrent subagents, average quality) | — |
+| `PI_PACKAGES_DIR` | Directory where pi packages (extensions/skills) for subagents are discovered (`herdr_package list`/`resolve`) | unset → tool provisioning skipped; only the profile `-t` allow-list applies |
+| `PI_THINKING_CLASSES` | Path to the local model capability table used by `herdr_thinking` (environment-measured; gitignored, never commit) | unset → `<repo>/agents/thinking-classes.json` (gitignored); format documented by `agents/thinking-classes.example.json` |
+| `HERDR_ENV` | `1` when pi runs inside a Herdr-managed pane | set by Herdr, not by the user |
+| `HERDR_PANE_ID` | Opaque id of the current Herdr pane | set by Herdr, not by the user |
+
+Notes:
+- These affect **subagents only** — the orchestrator session keeps its own model/thinking settings.
+- Shell startup files apply only to **newly opened panes**; existing panes need `source` of your startup file (or a restart).
+- Generic example (values are placeholders — pick real ones in your own startup file):
+
+```bash
+# e.g. ~/.bashrc
+export PI_MODEL_DEFAULT=provider/default-model
+export PI_MODEL_FALLBACK_HIGH=provider/high-model
+export PI_MODEL_FALLBACK_BULK=provider/bulk-model
+export PI_PACKAGES_DIR=/path/to/pi-packages
+export PI_THINKING_CLASSES=/path/to/private/thinking-classes.json
+```
+
 ## How it fits together
 
 ```
@@ -30,6 +58,8 @@ In a git repo where parallel subagents actually edit files, each subagent works 
 
 ## Subagent model fallback
 
+(All env vars listed in the **Environment variables** table above.)
+
 Subagent models are driven by env vars (`PI_MODEL_DEFAULT`, `PI_MODEL_FALLBACK_HIGH`, `PI_MODEL_FALLBACK_BULK`) exported from your shell startup file (e.g. `~/.bashrc`; source it or open a new shell) — the skill never hardcodes concrete model ids; it always reads the vars and asks the user when they are unset. `PI_MODEL_DEFAULT` is used whenever available; only when it is unavailable does the skill fall back, choosing between HIGH (quality / long context) and BULK (parallel / bulk) based on task type and concurrency. This only affects subagents, never the orchestrator session. See `SKILL.md` → *Subagent model 選擇與 fallback*.
 
 ## Subagent thinking level
@@ -37,6 +67,8 @@ Subagent models are driven by env vars (`PI_MODEL_DEFAULT`, `PI_MODEL_FALLBACK_H
 Subagent thinking level is set at spawn via `--thinking <level>` in `agentArgs` (pi has no `/thinking` command, so it cannot be changed later in a headless flow). The orchestrator calls the **`herdr_thinking` tool** right after picking the model (per the fallback rules above): it takes the model and the task difficulty and returns the recommended level plus the `--model`/`--thinking` agentArgs, classifying the model by provider/gateway rules → recorded capability table (`agents/thinking-classes.json`, gitignored/local-only — environment-measured, never commit) → model-design families (`deepseek-v4-*` on/off only, `qwen3.5/3.6/3.8` budget ladder). Unrecognized models get conservative defaults plus a probe instruction; after one probe the orchestrator persists the verified class with `action=record` so later spawns skip re-testing. Profiles carry a suggested `thinking` value per task type as a fallback. See `SKILL.md` → *Subagent thinking level 選擇*.
 
 ## Pi-package discovery (`PI_PACKAGES_DIR`)
+
+(Env var listed in the **Environment variables** table above.)
 
 Pi packages (extensions/skills) are **not** pinned in subagent profiles — the main agent picks them **dynamically per task** before each spawn (the package folder changes often, so pinned names go stale). The discovery directory comes from the `PI_PACKAGES_DIR` env var, exported from your shell startup file (e.g. `~/.bashrc`; source it or open a new shell to take effect):
 
