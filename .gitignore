@@ -1,2 +1,4 @@
 node_modules/
 .herdr-wt/
+# local model capability table (environment-measured; never publish)
+agents/thinking-classes.json

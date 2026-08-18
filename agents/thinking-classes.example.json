@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "entries": {
+    "example-model-a": {
+      "class": "budget-ladder",
+      "evidence": "probed: off produces no reasoning content; token-budget caps reasoning length per request"
+    },
+    "example-model-b": {
+      "class": "on-off",
+      "evidence": "probed: off produces no reasoning content; depth params accepted but inert"
+    }
+  }
+}

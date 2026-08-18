@@ -255,7 +255,7 @@ subagent 的 thinking level 在 `herdr_agent start` 的 `agentArgs` 加 `--think
 
 ### 未識別 model：probe → record（一次實測，永久生效）
 
-`herdr_thinking` 對查無能力資料的 model 回報 `unknown`，附保守預設與 probe 指示。此時跑一次**最小實測**、再把結果**寫回能力表**（`agents/thinking-classes.json`，`record` action 寫入，路徑可被 `PI_THINKING_CLASSES` 覆寫；已記錄的 model 之後直接查表、不再需要 probe）：
+`herdr_thinking` 對查無能力資料的 model 回報 `unknown`，附保守預設與 probe 指示。此時跑一次**最小實測**、再把結果**寫回能力表**（`agents/thinking-classes.json`，`record` action 寫入，路徑可被 `PI_THINKING_CLASSES` 覆寫；已記錄的 model 之後直接查表、不再需要 probe）。**能力表是環境實測資料，已加入 `.gitignore`（local-only、不要 commit）**——格式參考公開的 `agents/thinking-classes.example.json`，想完全移出 repo 就把 `PI_THINKING_CLASSES` 指向私人路徑：
 
 ```bash
 # probe：一次 one-shot 呼叫，確認 --thinking off 是否真的關掉思考

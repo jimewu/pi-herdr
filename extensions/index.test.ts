@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 const repoDir = process.cwd();
 
 import herdrExtension, {
@@ -603,12 +603,18 @@ describe("herdr_thinking (thinking-level advisor)", () => {
 		expect(r.reason).toContain("DeepSeek V4");
 	});
 
-	test("capability table is loaded from the repo file and used for classification", () => {
-		const classes = loadThinkingClasses(join(repoDir, "agents", "thinking-classes.json"));
-		expect(classes["deepseek-v4-flash"]?.class).toBe("on-off");
-		expect(classes["qwen3.8-27b"]?.class).toBe("budget-ladder");
-		const advice = computeThinkingAgentArgs("some-unknown-9b", "quality-critical", { classes });
-		expect(advice.modelClass).toBe("unknown");
+	test("capability table: missing file yields empty table (fresh clone, table is gitignored)", () => {
+		const missing = join(mkdtempSync(join(tmpdir(), "pi-think-none-")), "thinking-classes.json");
+		expect(loadThinkingClasses(missing)).toEqual({});
+		rmSync(dirname(missing), { recursive: true, force: true });
+	});
+
+	test("capability table example file parses and classifies", () => {
+		const classes = loadThinkingClasses(join(repoDir, "agents", "thinking-classes.example.json"));
+		expect(classes["example-model-a"]?.class).toBe("budget-ladder");
+		expect(classes["example-model-b"]?.class).toBe("on-off");
+		const advice = computeThinkingAgentArgs("example-model-a", "quality-critical", { classes });
+		expect(advice.modelClass).toBe("budget-ladder");
 	});
 
 	test("recorded class overrides family rules and persists", () => {
