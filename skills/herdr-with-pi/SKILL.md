@@ -267,7 +267,7 @@ pi --no-tools --model <model> --thinking off -p "<簡單問題>"
 查證完成後：
 
 ```json
-{ "action": "record", "model": "<model>", "class": "on-off|budget-ladder|gateway-forced", "evidence": "如何驗證的（通用描述，勿含機器資訊）" }
+{ "action": "record", "model": "<bare model id，勿含 provider/gateway 前綴>", "class": "on-off|budget-ladder|gateway-forced", "evidence": "如何驗證的（通用描述，勿含機器資訊）" }
 ```
 
 之後 `advise` 同一 model 直接取表，附註 `class from capability table`。能力表是 repo 資產，record 產生的改動由 orchestrator 正常 commit。

@@ -569,8 +569,8 @@ describe("herdr_thinking (thinking-level advisor)", () => {
 		expect(advice.notes.some((n) => n.includes("arithmetic"))).toBe(true);
 	});
 
-	test("provider prefix is stripped for family matching: jllm2-ds4/deepseek-v4-flash is on-off", () => {
-		const advice = computeThinkingAgentArgs("jllm2-ds4/deepseek-v4-flash", "complex");
+	test("provider prefix is stripped for family matching: some-gateway/deepseek-v4-flash is on-off", () => {
+		const advice = computeThinkingAgentArgs("some-gateway/deepseek-v4-flash", "complex");
 		expect(advice.modelClass).toBe("on-off");
 		expect(advice.thinkingLevel).toBe("high");
 	});

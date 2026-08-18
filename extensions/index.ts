@@ -1354,14 +1354,16 @@ export default function (pi: ExtensionAPI) {
 			"Before spawning a subagent, after choosing the model from PI_MODEL_* env rules, call herdr_thinking with action=advise, the model and the task difficulty tier to get the recommended thinking level and the --model/--thinking agentArgs entries.",
 			"Merge the returned agentArgs entries into herdr_agent start agentArgs together with -t (profile tools) and any -e (pi packages) entries; keep all entries single-line and shell-safe.",
 			"Read the returned notes: e.g. for on/off-only models minimal~high all mean thinking on; for gateway-forced models off is impossible.",
-			"When advise reports an unrecognized model, probe it once (a one-shot call with --thinking off; check whether reasoning content still appears in the session transcript) and persist the verified class with action=record so later spawns skip probing.",
+			"When advise reports an unrecognized model, probe it once (a one-shot call with --thinking off; check whether reasoning content still appears in the session transcript) and persist the verified class with action=record so later spawns skip probing. Record with the bare model id only — provider/gateway prefixes are stripped and must not be persisted.",
+			"Read the returned notes: e.g. for on/off-only models minimal~high all mean thinking on; for gateway-forced models off is impossible.",
 		],
 		parameters: Type.Object({
 			action: StringEnum(["advise", "record"] as const, {
 				description: "advise = recommend thinking level + agentArgs for a spawn; record = persist a verified capability class",
 			}),
 			model: Type.String({
-				description: "Target model: full `provider/model` or bare model id",
+				description:
+					"Target model: full `provider/model` or bare model id. For record, only the bare model id is stored (provider/gateway prefix is stripped).",
 			}),
 			difficulty: Type.Optional(
 				StringEnum(
@@ -1390,9 +1392,12 @@ export default function (pi: ExtensionAPI) {
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 			if (params.action === "record") {
 				if (!params.class) throw new Error("'class' is required for record");
+				// table entries are keyed by bare model id; strip any provider/gateway prefix
+				// so machine-specific gateway names never persist into the repo asset
+				const bareModel = params.model.split("/").slice(-1)[0];
 				const { entries, path } = saveThinkingClass(
 					thinkingClassesPath(),
-					params.model,
+					bareModel,
 					params.class,
 					params.evidence,
 				);
