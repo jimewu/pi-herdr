@@ -1,20 +1,18 @@
-# Plan-Skill 模板
+# Plan-Skill 模板（for Agent 使用）
 
-此目錄包含 plan-skill 的範本，可用於建立新的 plan-skill。
+當你（agent）被要求建立一個新的 plan-skill 時，此目錄提供參考結構。
 
-## 使用方法
+## 使用方式
 
-```bash
-# 從模板複製一個新的 plan-skill
-cp -r skills/plan-as-skill/templates/plan-skill-template skills/<your-plan-name>
-# 編輯 SKILL.md 填入你的計畫內容
-```
+1. 讀取 `plan-skill-template/SKILL.md` 了解一個 plan-skill 應該有哪些區塊
+2. 根據你的研究結論，填入對應的內容到 `skills/<new-plan-name>/SKILL.md`
+3. 如有需要，建立 `chapters/`、`indexes/`、`notes/` 子目錄
 
 ## 模板列表
 
-| 模板 | 說明 | 適用場景 |
-|------|------|----------|
-| [plan-skill-template](plan-skill-template/SKILL.md) | 通用 plan-skill 模板 | 任何需要多步驟執行的複雜任務 |
+| 模板 | 說明 |
+|------|------|
+| [plan-skill-template](plan-skill-template/SKILL.md) | 通用 plan-skill 模板，包含所有必要區塊的 placeholder |
 
 ## 建立 Plan-Skill 的檢查清單
 

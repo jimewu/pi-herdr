@@ -142,14 +142,23 @@ herdr_package resolve ["<package-name>"]
 
 按照上述結構寫入 `skills/<plan-name>/` 目錄。
 
-可以使用模板快速開始：
-
-```bash
-cp -r skills/plan-as-skill/templates/plan-skill-template skills/<your-plan-name>
-# 然後編輯 SKILL.md
-```
+可以先讀取 `templates/plan-skill-template/SKILL.md` 了解一個 plan-skill 應該有哪些區塊，
+然後根據你的研究結論填入對應內容。
 
 寫完後，參考 `templates/README.md` 的檢查清單確認沒有遺漏。
+
+### 步驟 7：測試
+
+用 pi CLI 開一個新 session 載入新建的 plan-skill，問以下問題確認 agent 理解：
+
+```
+1. 你的任務是什麼？
+2. 總共有幾個 phase？
+3. Phase 0 要做什麼？
+4. 驗收標準是什麼？
+```
+
+如果 agent 理解正確，plan-skill 就完成了。
 
 ---
 
@@ -246,11 +255,13 @@ herdr_package resolve ["<package-name>"]
 
 ---
 
-## 模板與範例
+## 模板與範例（for Agent 使用）
+
+當你（agent）被要求建立一個新的 plan-skill 時，以下資源可參考：
 
 | 資源 | 位置 | 說明 |
 |------|------|------|
-| [通用模板](templates/plan-skill-template/SKILL.md) | `templates/plan-skill-template/` | 建立新 plan-skill 的起點 |
+| [通用模板](templates/plan-skill-template/SKILL.md) | `templates/plan-skill-template/` | 建立新 plan-skill 的結構參考 |
 | [模板說明](templates/README.md) | `templates/README.md` | 檢查清單與測試方式 |
 
 ## 現有的 Plan-Skills

@@ -124,6 +124,11 @@ herdr_package resolve ["<package-name>"]
 - 一眼能看出計畫內容
 - 如 `r9700-qwen3.8-sglang`、`batch-book-to-skill`
 
+### 參考模板
+
+`templates/plan-skill-template/SKILL.md` 包含一個 plan-skill 所有必要區塊的 placeholder。
+讀取它了解結構，然後根據你的研究結論填入對應內容。
+
 ### 初始化
 
 ```bash
