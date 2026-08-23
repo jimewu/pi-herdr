@@ -78,13 +78,19 @@ git log --since=2026-08-20 --oneline -- <相關路徑>
 
 ### 使用 Subagent 分工
 
-當計畫指定使用 subagent 時：
+當計畫指定使用 subagent 時，**一定要透過 herdr 實際分工**，不要自己一個人做所有事。
 
-1. 使用 `herdr_layout` 建立 pane/tab
-2. 使用 `herdr_agent start` 啟動 subagent
-3. 使用 `herdr_agent prompt` 派任務
-4. 使用 `herdr_agent read` 讀結果
-5. 使用 `herdr_pane close` 關閉（完工後）
+分工的具體做法（herdr-with-pi skill 已有完整說明，此處只列要點）：
+
+1. **確保 delegated agent 獲得需要的工具和上下文**：
+   - 使用 `-t <tools>` 指定工具白名單（只給它需要的，不要給太多）
+   - 如果任務需要某個 pi package 的 skill/tool，使用 `herdr_package list` 查看可用 package，然後 `herdr_package resolve` 取得路徑，用 `-e <dir>` 傳給 subagent
+   - 任務的 context、身份、output contract 透過 `herdr_agent prompt` 傳遞，不要塞進 agentArgs
+   - 如果需要 git 改檔，開 worktree 並把 cwd 指向 worktree
+
+2. **Reviewer 永遠是獨立 agent**：不可與執行該階段的 Worker 共用同一個 agent。
+
+3. **完工即關閉**：subagent 任務完成後，立即 `herdr_pane close` 回收資源。
 
 ## 處理 Loop 與重試
 
@@ -101,9 +107,38 @@ git log --since=2026-08-20 --oneline -- <相關路徑>
 2. escalate 給 USER
 3. 提供可行的下一步建議
 
-## 寫 Notes
+## 寫 Log 與 Notes
 
-執行完成後，寫下經驗回饋到 `notes/` 目錄：
+### 寫 Log（執行過程記錄）
+
+執行過程中**持續寫 log**，不是只留最後的 notes。Log 的目的是將來 troubleshooting 有依據。
+
+```markdown
+# Log - YYYY-MM-DD HH:MM
+
+## Phase X: <階段名稱>
+
+### 執行動作
+- 做了什麼：
+- 指令/工具呼叫：
+- 結果：
+
+### 決策記錄
+- 決策：
+- 理由：
+- 是誰決定的（orchestrator / subagent / USER）：
+
+### 遇到的問題
+- 問題描述：
+- 解法：
+- 解決了嗎：是 / 否（原因）
+```
+
+Log 寫在 `notes/execution-log.md`。每個階段結束時追加記錄，不要等全部做完才寫。
+
+### 寫 Notes（事後總結）
+
+執行完成後，寫下經驗回饋到 `notes/` 目錄。這與 log 不同：log 是過程記錄，notes 是事後總結與建議，供下次迭代參考。
 
 ```markdown
 # Notes - YYYY-MM-DD

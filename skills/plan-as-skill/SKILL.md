@@ -181,22 +181,29 @@ herdr_package resolve ["<package-name>"]
 - 有重大變更 → 評估是否需要調整計畫，必要時問 USER
 - 環境變數未設定 → 停止，請 USER 設定
 
-### 3. 依序執行各階段
+### 3. 依序執行各階段，透過 herdr 實際分工
 
 每個階段使用 progressive disclosure：
 - 先讀 `chapters/phase-<N>-<name>.md` 取得詳細說明
-- 執行該階段的步驟
+- 如果階段需要 subagent，**一定要透過 herdr 實際分工**，不要自己一個人做
+- 確保 delegated agent 獲得需要的工具（`-t`）、pi packages（`-e`）、上下文（`prompt`）
 - 達到驗收標準後進入下一階段
 
-### 4. 處理 Loop 與重試
+### 4. 持續寫 Log
+
+執行過程中持續寫 log 到 `notes/execution-log.md`，每個階段結束時追加。
+Log 記錄：做了什麼、用了什麼指令、結果如何、做了什麼決策、遇到什麼問題。
+
+### 5. 處理 Loop 與重試
 
 - 如果某個階段未通過驗收，送回重試
 - 重試次數上限：`PI_PLAN_MAX_RETRY`（預設 3，從 env 讀取）
 - 超過上限 → escalate 給 USER
 
-### 5. 寫 Notes
+### 6. 寫 Notes
 
 執行完成後，寫下經驗回饋到 `notes/` 目錄。
+這與 log 不同：log 是過程記錄，notes 是事後總結與建議，供下次迭代參考。
 
 ---
 
