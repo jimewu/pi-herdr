@@ -1,170 +1,237 @@
 ---
 name: plan-as-skill
-description: "將複雜多步驟任務的執行計畫編碼為可重複使用的 agent skill。計畫預先經過完整研究（探索、檢索、驗證），執行階段只需檢查期間的 new commits。支援 multi-agent 分工、loop engineering、graph engineering、雙層驗收 endpoint（validation / verification）、以及資源感知的 model 建議。執行前有行前檢查，避免空跑。"
+description: "Plan-as-Skill 是「如何建立與執行 plan-skill」的 meta-skill。它定義了 plan-skill 的結構、progressive disclosure 原則、以及執行時的行前檢查、new commits 驗證、agent 拓樸設計、雙層驗收 endpoint 等規範。當你載入一個具體的 plan-skill（如 r9700-qwen3.8-sglang）時，那個 skill 才是要執行的計畫；本 skill 是你的參考手冊。"
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   mode: reference
   package: pi-herdr
   depends: herdr-with-pi
 ---
 
-# Plan-as-Skill
+# Plan-as-Skill（Meta-Skill）
 
-Plan-as-Skill 不是一個「把計畫變成 skill」的轉換器，而是一套**將執行計畫本身編碼為 skill** 的框架。計畫就是 skill，skill 就是計畫。
+> ⚠️ **這是一個 meta-skill**，不是可執行的計畫。  
+> 如果你載入本 skill 是為了執行某個具體任務，你可能載入錯了——請找 `skills/<plan-name>/` 下的具體 plan-skill。  
+> 如果你是要建立一個新的 plan-skill，或想了解 plan-skill 的概念，請繼續閱讀。
 
-## 核心哲學
+---
+
+## 什麼是 Plan-Skill？
+
+Plan-as-Skill 是一套將**執行計畫編碼為 agent skill** 的方法論。一個 plan-skill 就是一個**可執行的計畫**——它是一個獨立的 skill，放在 `skills/<plan-name>/` 下，有自己的 `SKILL.md`，可以被 agent 載入後直接執行。
 
 ### 計畫與執行分離
 
 ```
-[規劃階段]                                    [執行階段]
-  1. 確定 scope 與目標                        1. 載入 plan-skill（輕量 L0）
-  2. 完整研究所有路徑缺口                      2. 行前檢查（狀態確認）
-  3. 設計 agent 拓樸與分工                    3. 檢查期間的 new commits
-  4. 預先探索解法與陷阱                        4. 依計畫逐步執行（progressive disclosure）
-  5. 估算 token 成本與時間                    5. 遇狀況 → 查 contingency
-  6. 跟 USER 討論、revise                    6. 寫 notes 回饋
-  7. 定型 → 寫成 plan-skill
+[規劃階段: 由人 + agent 共同完成]          [執行階段: 由 agent 載入 plan-skill 執行]
+  1. 確定 scope 與目標                      1. 載入 plan-skill → SKILL.md 就是入口
+  2. 完整研究所有路徑缺口                    2. 行前檢查（環境狀態 + new commits）
+  3. 設計 agent 拓樸與分工                  3. 依計畫逐步執行（progressive disclosure）
+  4. 預先探索解法與陷阱                      4. 遇狀況 → 查 contingency
+  5. 估算 token 成本與時間                   5. 寫 notes 回饋
+  6. 跟 USER 討論、revise
+  7. 定型 → 寫成 plan-skill（獨立 skill）
 ```
 
-**關鍵原則**：所有探索、研究、檢索、解法驗證，都在規劃階段完成。執行階段只需要：
-- 檢查「規劃完成後到執行當下」之間相關 repo 的 new commits
-- 確認環境狀態與規劃時一致
-- 然後照計畫走
-
-### Progressive Disclosure 套用到計畫
-
-```
-L0  SKILL.md                    — 計畫一頁總覽（scope、階段、決策點、預估成本）
-L1  chapters/                   — 各階段詳細說明（loop 設計、agent 拓樸、模型建議）
-L2  plans/<plan-name>.md        — 具體計畫（可執行的步驟、指令、驗收標準）
-    indexes/contingency.md      — 已知陷阱與應變方案索引
-    notes/                      — 執行後的經驗回饋
-```
-
-### Loop Engineering
-
-每個階段定義明確的 OODA loop：
-
-```
-Observe  →  檢查當前狀態、讀取中間結果
-  ↓
-Orient   →  分析是否符合預期、判斷下一步
-  ↓
-Decide   →  選擇行動方案、決定是否重試
-  ↓
-Act      →  執行工具、呼叫 subagent、問 USER
-  ↓
-Observe  →  檢查結果，決定進入下一階段或重試
-```
-
-### Graph Engineering — Agent 拓樸
-
-計畫可預先定義 multi-agent 分工拓樸：
-
-```
-                 ┌──────────────┐
-                 │  Orchestrator │  ← 執行 plan-skill 的主 agent
-                 │ (plan runner) │
-                 └──────┬───────┘
-          ┌──────────────┼──────────────┐
-          ▼              ▼              ▼
-    ┌──────────┐  ┌──────────┐  ┌──────────┐
-    │ Worker A │  │ Worker B │  │ Worker C │  ← 並行工作者
-    │ (phase1) │  │ (phase1) │  │ (phase2) │
-    └────┬─────┘  └────┬─────┘  └────┬─────┘
-         │              │              │
-         └──────┬───────┘              │
-                ▼                      │
-         ┌──────────┐                  │
-         │ Reviewer │  ← 獨立驗收      │
-         └────┬─────┘                  │
-              │ (pass/fail)            │
-              ▼                        ▼
-         ┌──────────┐           ┌──────────┐
-         │ Merger   │           │ ...      │  ← 下一階段
-         └──────────┘
-```
-
-**核心規則**：Reviewer 永遠是獨立 agent，不能自己驗收自己的工作。
+**關鍵原則**：所有探索、研究、檢索、解法驗證，都在規劃階段完成。執行階段只要確認前提仍成立，然後照計畫走。
 
 ---
 
-## Plan 結構
+## Plan-Skill 的目錄結構
 
-每個 plan 放在 `plans/<plan-name>.md`，遵循以下模板：
+一個 plan-skill 是一個獨立的 skill 目錄，遵循標準的 Agent-Skills 結構：
+
+```
+skills/<plan-name>/
+├── SKILL.md              ← 入口：計畫總覽 + 執行指引（L0）
+├── chapters/             ← 各階段詳細說明（L1，progressive disclosure）
+│   ├── phase-00-pre-flight.md
+│   ├── phase-01-xxx.md
+│   └── ...
+├── indexes/              ← 輔助索引
+│   └── contingency.md    ← 已知陷阱與應變方案
+└── notes/                ← 執行後的經驗回饋
+```
+
+### SKILL.md 的結構（一個 plan-skill 的入口）
+
+當 agent 載入 plan-skill 時，SKILL.md 就是它的**行動指令**。它應該包含：
 
 ```markdown
-# Plan: <計畫名稱>
+---
+name: <plan-name>
+description: "一句話說明這個計畫做什麼"
+metadata:
+  plan-date: YYYY-MM-DD
+  package: <所屬 package>
+  plan-skill: true          # 標記這是一個 plan-skill
+  plan-as-skill-version: ">=1.1.0"  # 遵循的 meta-skill 版本
+---
+
+# <計畫名稱>
+
+> ⚠️ 這是一個 plan-skill。你的任務是**執行這個計畫**。
+> 閱讀本 SKILL.md 了解全貌，然後從 Phase 0 開始逐步執行。
 
 ## Scope
-<!-- 明確的範圍與目標 -->
+明確的範圍與目標。
 
-## 已知前提（規劃時已確認）
-- [前提 1] — 證據來源
-- [前提 2] — 證據來源
+## 研究結論（已預先完成）
+規劃時已經完成的研究結論，列出所有已知前提與證據來源。
 
-## 執行階段
+## 執行步驟
 
 ### Phase 0: 行前檢查
-<!-- 確認環境狀態、檢查期間的 new commits -->
-- 檢查事項清單
-- **決策點**: 全部通過才 proceed
+確認環境、檢查 new commits、決策能否 proceed。
 
-### Phase 1: <階段名稱>
-<!-- 詳細步驟 -->
-- 預估 token 消耗：
-- 建議 model：
-- 建議 thinking level：
-- 步驟 ...
+### Phase 1: ...
+（後續階段）
 
-### Phase 2: <階段名稱>
-...
-<!-- 每一階段可包含子 loop -->
+## 驗收標準
+### Validation
+### Verification
 
-## 驗收 Endpoint
-
-### Validation Endpoint — 直接滿足 USER 目標的標準
-- 標準 1
-- 標準 2
-
-### Verification Endpoint — 技術方案達標的標準
-- 標準 1
-- 標準 2
-
-## Contingency Index
-- 狀況 A → 解法 A
-- 狀況 B → 解法 B
-
+## 應變方案
 ## 執行後 Notes
-- （執行後填寫）
 ```
 
 ---
 
-## 執行規則
+## 如何建立一個 Plan-Skill
 
-1. **行前檢查**：每次執行前，先確認所有前提仍成立
-2. **New Commits 檢查**：檢查 `plan 建立日` 到 `執行當日` 之間相關 repo 的 commit，若有重大變更需調整計畫
-3. **Loop 上限**：每個 loop 的重試次數上限由 `PI_PLAN_MAX_RETRY` 環境變數決定（預設 3，在 `~/.profile` 設定）
-4. **Reviewer 獨立**：同一階段的執行與驗收必須由不同 agent 負責
-5. **Notes 回饋**：執行後必須寫 notes，供下次迭代參考
+### 步驟 1：研究先行
 
-## 模型建議規則
+在動手寫 plan-skill 之前，先完成所有研究：
+- 使用 websearch、webfetch 等工具探索所有路徑
+- 確認技術可行性和已知陷阱
+- 如果有多個解決方案，評估優缺點
 
-- 執行階段可以根據規劃時的建議選擇 model，但實際執行時可依 USER 要求變更
-- 規劃時會標註每個階段的建議 model 級別（default / high / bulk）
-- 執行時依 `PI_MODEL_DEFAULT` / `PI_MODEL_FALLBACK_HIGH` / `PI_MODEL_FALLBACK_BULK` 實際值決定
+### 步驟 2：設計 Agent 拓樸
+
+使用 `herdr-with-pi` 的 subagent 概念，設計誰做什麼：
+- 哪些階段可以並行？
+- 哪些階段需要獨立的 reviewer？
+- 使用 worktree 模式還是小任務模式？
+
+### 步驟 3：定義驗收標準
+
+每個階段都要有兩類驗收 endpoint：
+- **Validation**: 滿足 USER 目標的標準
+- **Verification**: 技術方案達標的標準
+
+### 步驟 4：找出 Pi Packages 資源
+
+從 `PI_PACKAGES_DIR` 環境變數指定的路徑找出任務需要的 pi packages：
+
+```bash
+# 查看可用 packages
+herdr_package list
+# 選擇任務需要的 package
+herdr_package resolve ["<package-name>"]
+# 透過 -e <dir> 傳給 subagent
+```
+
+### 步驟 5：指定 Model 建議
+
+指定每個階段的 model 等級（不指定具體 model 名稱）：
+- `PI_MODEL_DEFAULT`：一般任務
+- `PI_MODEL_FALLBACK_HIGH`：品質優先 / 長上下文
+- `PI_MODEL_FALLBACK_BULK`：大量並行 / 品質普通
+
+### 步驟 6：寫入 Plan-Skill
+
+按照上述結構寫入 `skills/<plan-name>/` 目錄。
+
+---
+
+## 如何執行一個 Plan-Skill
+
+當你載入一個 plan-skill 時，你的任務是執行它。以下是執行指引：
+
+### 1. 讀取 SKILL.md
+
+先完整讀取 SKILL.md，了解全貌：
+- Scope 是什麼？
+- 總共有幾個階段？
+- 驗收標準是什麼？
+- 有哪些應變方案？
+
+### 2. 執行 Phase 0: 行前檢查
+
+這是**最重要的一步**。不要跳過。
+
+#### 檢查項目
+
+**a. 環境變數確認**
+- `PI_MODEL_DEFAULT`、`PI_MODEL_FALLBACK_HIGH`、`PI_MODEL_FALLBACK_BULK` 是否已設定？
+- `PI_PACKAGES_DIR` 是否有指向你的 pi packages 目錄？
+- 任何 plan-skill 特定的 env（如 `RDNA_DEV_HOST`）是否已設定？
+
+**b. New Commits 檢查**
+- 找出 plan-skill 的 `plan-date`（metadata 中）
+- 針對每個相關的 repo，檢查從 `plan-date` 到現在是否有 new commits：
+  ```bash
+  git log --since=<plan-date> --oneline
+  ```
+- 如果有重大變更（如 bug fix、新功能），評估是否需要調整計畫
+- 如果只是 minor 變更，記錄下來但不需要調整
+
+**c. 決策點**
+- 全部通過 → 進入 Phase 1
+- 有重大變更 → 評估是否需要調整計畫，必要時問 USER
+- 環境變數未設定 → 停止，請 USER 設定
+
+### 3. 依序執行各階段
+
+每個階段使用 progressive disclosure：
+- 先讀 `chapters/phase-<N>-<name>.md` 取得詳細說明
+- 執行該階段的步驟
+- 達到驗收標準後進入下一階段
+
+### 4. 處理 Loop 與重試
+
+- 如果某個階段未通過驗收，送回重試
+- 重試次數上限：`PI_PLAN_MAX_RETRY`（預設 3，從 env 讀取）
+- 超過上限 → escalate 給 USER
+
+### 5. 寫 Notes
+
+執行完成後，寫下經驗回饋到 `notes/` 目錄。
+
+---
 
 ## 與 herdr-with-pi 的關係
 
-Plan-as-skill 是 herdr-with-pi 的**進階執行模式**：
-- herdr-with-pi 提供 subagent 分派的基礎建設（tools）
-- plan-as-skill 提供 **預先規劃好的、經過研究的執行藍圖**（策略）
-- 執行時，orchestrator 載入 plan-skill，依照藍圖逐步執行
+Plan-as-Skill 是 herdr-with-pi 的**進階執行模式**：
 
-## Available Plans
+| 層次 | 工具 | 角色 |
+|------|------|------|
+| **執行層** | `herdr_layout` / `herdr_pane` / `herdr_agent` | 開 pane、啟動 agent、派任務 |
+| **策略層** | `herdr-with-pi` skill | 何時用 subagent、怎麼分工、worktree 規則 |
+| **計畫層** | `plan-as-skill` (本 skill) | 如何把計畫變成 skill、如何執行 plan-skill |
+| **執行層** | 具體的 plan-skill（如 `r9700-qwen3.8-sglang`） | 可執行的計畫本身 |
 
-| Plan | 說明 | 規劃日期 |
-|------|------|----------|
-| [r9700-qwen3.8-sglang](plans/r9700-qwen3.8-sglang.md) | 在 R9700 (gfx1201) 上使用 sglang 跑 Qwen3.8-27B AWQ-INT4 | 2026-08-20 |
+---
+
+## 可用的 Pi Packages 資源
+
+執行 plan-skill 時，需要的 pi packages 從 `PI_PACKAGES_DIR` 指定的路徑動態發現：
+
+```bash
+# 查看所有可用的 packages
+herdr_package list
+
+# 解析需要的 package 的路徑，然後傳給 subagent
+herdr_package resolve ["<package-name>"]
+# → -e /path/to/package
+```
+
+每個 plan-skill 的 `chapters/` 或 `SKILL.md` 中會標註建議使用的 packages。
+
+---
+
+## 現有的 Plan-Skills
+
+| Plan-Skill | 位置 | 說明 | 規劃日期 |
+|-----------|------|------|----------|
+| [r9700-qwen3.8-sglang](../../r9700-qwen3.8-sglang/SKILL.md) | `skills/r9700-qwen3.8-sglang/` | 在 R9700 上使用 sglang 跑 Qwen3.8-27B AWQ-INT4 | 2026-08-20 |

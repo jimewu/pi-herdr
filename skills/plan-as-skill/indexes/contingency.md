@@ -32,4 +32,4 @@
 
 ## 特定計畫應變方案
 
-見各計畫的 `plans/<plan-name>.md` 中的 Contingency 章節。
+見各 plan-skill 的 `SKILL.md` 或 `indexes/contingency.md`。
