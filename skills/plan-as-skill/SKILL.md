@@ -142,6 +142,15 @@ herdr_package resolve ["<package-name>"]
 
 按照上述結構寫入 `skills/<plan-name>/` 目錄。
 
+可以使用模板快速開始：
+
+```bash
+cp -r skills/plan-as-skill/templates/plan-skill-template skills/<your-plan-name>
+# 然後編輯 SKILL.md
+```
+
+寫完後，參考 `templates/README.md` 的檢查清單確認沒有遺漏。
+
 ---
 
 ## 如何執行一個 Plan-Skill
@@ -236,6 +245,13 @@ herdr_package resolve ["<package-name>"]
 每個 plan-skill 的 `chapters/` 或 `SKILL.md` 中會標註建議使用的 packages。
 
 ---
+
+## 模板與範例
+
+| 資源 | 位置 | 說明 |
+|------|------|------|
+| [通用模板](templates/plan-skill-template/SKILL.md) | `templates/plan-skill-template/` | 建立新 plan-skill 的起點 |
+| [模板說明](templates/README.md) | `templates/README.md` | 檢查清單與測試方式 |
 
 ## 現有的 Plan-Skills
 
