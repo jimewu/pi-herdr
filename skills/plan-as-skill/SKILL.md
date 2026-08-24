@@ -2,7 +2,7 @@
 name: plan-as-skill
 description: "Plan-as-Skill 是「如何建立與執行 plan-skill」的 meta-skill。它定義了 plan-skill 的結構、progressive disclosure 原則、以及執行時的行前檢查、new commits 驗證、agent 拓樸設計、雙層驗收 endpoint 等規範。當你載入一個具體的 plan-skill（如 r9700-qwen3.8-sglang）時，那個 skill 才是要執行的計畫；本 skill 是你的參考手冊。"
 metadata:
-  version: 1.2.0
+  version: 1.3.0
   mode: reference
   package: pi-herdr
   depends: herdr-with-pi
@@ -43,14 +43,17 @@ Plan-as-Skill 是一套將**執行計畫編碼為 agent skill** 的方法論。�
 
 ```
 skills/<plan-name>/
-├── SKILL.md              ← 入口：計畫總覽 + 執行指引（L0）
-├── chk.json              ← 各步驟的 checkpoint 驗收定義
+├── SKILL.md              ← 入口：只揭露 Step 0（L0）
+├── steps/                ← 各步驟詳細內容（L1，progressive disclosure）
+│   ├── step_1.md
+│   ├── step_2.md
+│   ├── step_2a.md
+│   ├── step_2b.md
+│   └── ...
+├── chk.json              ← 各步驟的 checkpoint 驗收定義（含 next_on_pass）
 ├── chk                   ← Go 編譯的 CLI 二進位檔（從 plan-as-skill 複製）
 ├── .chkstate.json        ← 執行狀態（自動產生，gitignored）
-├── chapters/             ← 各階段詳細說明（L1，progressive disclosure）
-│   ├── phase-00-pre-flight.md
-│   ├── phase-01-xxx.md
-│   └── ...
+├── chapters/             ← 輔助章節（選擇性）
 ├── indexes/              ← 輔助索引
 │   └── contingency.md    ← 已知陷阱與應變方案
 └── notes/                ← 執行後的經驗回饋
@@ -58,7 +61,9 @@ skills/<plan-name>/
 
 ### SKILL.md 的結構（一個 plan-skill 的入口）
 
-當 agent 載入 plan-skill 時，SKILL.md 就是它的**行動指令**。它應該包含：
+當 agent 載入 plan-skill 時，SKILL.md 就是它的**行動指令**。但注意——**SKILL.md 只揭露 Step 0 的內容**，後續步驟在 `steps/step_<N>.md` 檔案中。這是 progressive disclosure 的核心：通過 chk 才能知道下一步看哪個檔案。
+
+它應該包含：
 
 ```markdown
 ---
@@ -68,13 +73,14 @@ metadata:
   plan-date: YYYY-MM-DD
   package: <所屬 package>
   plan-skill: true          # 標記這是一個 plan-skill
-  plan-as-skill-version: ">=1.2.0"  # 遵循的 meta-skill 版本
+  plan-as-skill-version: ">=1.3.0"  # 遵循的 meta-skill 版本
 ---
 
 # <計畫名稱>
 
 > ⚠️ 這是一個 plan-skill。你的任務是**執行這個計畫**。
-> 閱讀本 SKILL.md 了解全貌，然後從 Phase 0 開始逐步執行。
+> 本 SKILL.md 只揭露 Step 0 的內容。後續步驟在 `steps/step_<N>.md` 中，
+> 由 `chk` 通過後指引你去看。
 
 ## Scope
 明確的範圍與目標。
@@ -82,17 +88,18 @@ metadata:
 ## 研究結論（已預先完成）
 規劃時已經完成的研究結論，列出所有已知前提與證據來源。
 
-## 執行步驟
+## 需要的資源
+環境變數、pi packages。
 
-### Phase 0: 行前檢查
-確認環境、檢查 new commits、決策能否 proceed。
+## 執行流程總覽
+計畫的 roadmap 概覽（不揭露細節）。
 
-### Phase 1: ...
-（後續階段）
+## Step 0: 行前檢查
+只有 Step 0 的內容在此。
+→ 通過後 chk 告訴你下一步。
 
-## 驗收標準
-### Validation
-### Verification
+## Subagent 使用規範
+遠端指令使用 ssh 前綴模式。
 
 ## 應變方案
 ## 執行後 Notes
@@ -116,7 +123,7 @@ metadata:
 - 哪些階段需要獨立的 reviewer？
 - 使用 worktree 模式還是小任務模式？
 
-### 步驟 3：定義驗收標準 + 編號 + chk checkpoint
+### 步驟 3：定義驗收標準 + 編號 + chk checkpoint + next_on_pass
 
 每個階段都要有兩類驗收 endpoint：
 - **Validation**: 滿足 USER 目標的標準
@@ -124,8 +131,9 @@ metadata:
 
 同時，每個步驟必須：
 1. **編號**：使用 `0, 1, 2, 2a, 2b, 2b-1, 2b-2, ...` 格式，確保編號唯一且可排序
-2. **定義 chk checkpoint**：在 `chk.json` 中為每個步驟定義 `expected_result` 和 `help`（含驗收清單）
+2. **定義 chk checkpoint**：在 `chk.json` 中為每個步驟定義 `expected_result`、`help`（含驗收清單）以及 `next_on_pass`（通過後指引下一步去哪個檔案）
 3. **每個步驟結束點**：必須有 `chk --step <N> --result <CODE>` 作為強制閘門
+4. **Progressive disclosure**：每個步驟的詳細內容放在獨立的 `steps/step_<N>.md` 檔案中，SKILL.md 只揭露 Step 0
 
 ### 步驟 4：找出 Pi Packages 資源
 
@@ -157,7 +165,7 @@ herdr_package resolve ["<package-name>"]
 
 ### 步驟 7：建立 chk.json 與 chk binary
 
-在 plan-skill 目錄下建立 `chk.json`，定義每個步驟的 checkpoint。
+在 plan-skill 目錄下建立 `chk.json`，定義每個步驟的 checkpoint。`next_on_pass` 欄位是 progressive disclosure 的關鍵：當 agent 通過 chk 時，會顯示下一步要去哪個檔案。
 
 ```json
 {
@@ -166,11 +174,13 @@ herdr_package resolve ["<package-name>"]
     "0": {
       "title": "Step 0: 行前檢查",
       "expected_result": "PREFLIGHT_PASS",
+      "next_on_pass": "請讀取 steps/step_1.md 開始下一步。",
       "help": "## Step 0: 行前檢查\n\n### 檢查清單\n- [ ] 檢查項目 1\n- [ ] 檢查項目 2\n\n### 通過編碼\nPREFLIGHT_PASS — 全部檢查通過"
     },
     "1": {
       "title": "Step 1: ...",
       "expected_result": "STEP1_DONE",
+      "next_on_pass": "請讀取 steps/step_2.md 開始下一步。",
       "help": "..."
     }
   }
@@ -188,9 +198,11 @@ herdr_package resolve ["<package-name>"]
 2. 總共有幾個 step？編號是什麼？
 3. Step 0 要做什麼？
 4. 驗收標準是什麼？
-5. 每個步驟結束後要做什麼？
+5. 每個步驟結束後要做什麼？（先更新 log，再執行 chk）
 6. 如果 chk 回傳 FAIL，你該怎麼做？
-7. 如果需要使用 subagent，subagent 的 prompt 中必須包含什麼？
+7. 通過 chk 後，chk 會顯示什麼？
+8. 如果需要使用 subagent，subagent 的 prompt 中必須包含什麼？
+9. 遠端指令應該怎麼執行？（用 ssh 前綴，不是先連過去）
 ```
 
 如果 agent 理解正確，plan-skill 就完成了。
@@ -275,22 +287,23 @@ Log 記錄在 `notes/execution-log.md`，每個步驟的內容：
 
 ---
 
-## chk 目錄結構
-
-每個 plan-skill 目錄下應包含 `chk.json` 和 `chk` 二進位檔：
-
 ```
 skills/<plan-name>/
-├── SKILL.md              ← 入口（含編號步驟 + chk checkpoint 標記）
-├── chk.json              ← 各步驟的驗收定義
+├── SKILL.md              ← 入口：只揭露 Step 0（L0）
+├── steps/                ← 各步驟詳細內容（L1，progressive disclosure）
+│   ├── step_1.md
+│   ├── step_2.md
+│   ├── step_2a.md
+│   ├── step_2b.md
+│   └── ...
+├── chk.json              ← 各步驟的 checkpoint 驗收定義（含 next_on_pass）
 ├── chk                   ← Go 編譯的 CLI 二進位檔（從 plan-as-skill 複製）
 ├── .chkstate.json        ← 執行狀態（自動產生，gitignored）
-├── chapters/
-├── indexes/
-└── notes/
+├── chapters/             ← 輔助章節（選擇性）
+├── indexes/              ← 輔助索引
+│   └── contingency.md    ← 已知陷阱與應變方案
+└── notes/                ← 執行後的經驗回饋
 ```
-
-### 建立 chk.json 的規則
 
 每個步驟的 `expected_result` 是字串編碼，agent 必須在完成步驟後用 `chk --step <N> --result <CODE>` 宣告。
 

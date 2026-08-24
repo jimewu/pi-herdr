@@ -1,4 +1,4 @@
-# Chapter 3: 如何執行一個 Plan-Skill（v1.2.0）
+# Chapter 3: 如何執行一個 Plan-Skill（v1.3.0）
 
 ## 載入階段
 
@@ -6,14 +6,12 @@
 
 ### 第一步：讀取 SKILL.md
 
-先完整讀取 SKILL.md，了解全貌：
+先完整讀取 SKILL.md，了解全貌。但注意——**SKILL.md 只揭露 Step 0 的內容**，後續步驟在 `steps/step_<N>.md` 檔案中，由 `chk` 指引你去看。
 
 1. Scope 是什麼？什麼是 included / excluded？
-2. 總共有幾個 step？編號是什麼？
-3. 驗收標準是什麼？
-4. 有哪些應變方案？
-5. 需要哪些環境變數和 pi packages？
-6. 目錄下是否有 `chk.json` 和 `chk` 二進位檔？
+2. 研究結論是什麼？有哪些前提需要確認？
+3. 需要哪些環境變數和 pi packages？
+4. 目錄下是否有 `chk.json`、`chk` 二進位檔、以及 `steps/` 目錄？
 
 ### 第二步：確認資源
 
@@ -33,7 +31,7 @@ herdr_package list
 
 如果需要的環境變數未設定，**停止執行**並請 USER 設定。
 
-## 執行 Phase 0: 行前檢查（Step 0）
+## 執行 Step 0: 行前檢查
 
 這是**最重要的一步**。不要跳過。
 
@@ -61,21 +59,22 @@ git log --since=2026-08-20 --oneline -- <相關路徑>
 - 有重大變更 → 評估是否需要調整計畫
 - 環境變數未設定 → 停止，請 USER 設定
 
-## 執行各步驟
+## 執行各步驟（Progressive Disclosure 圍繞 chk）
 
-### 強制流程（每個步驟都必須遵守）
+### 核心機制
 
 ```
-1. 讀取 chapters/ 的詳細說明（如果需要的話）
-2. 執行該步驟的任務
-   a. 如果需要 subagent：先 SSH 到遠端主機，再啟動 agent
-   b. Subagent 的 prompt 中必須包含「先 SSH 到遠端主機」的指令
-3. 更新 notes/execution-log.md（記錄做了什麼、結果、決策、問題）
-4. 執行 checkpoint：./chk --step <N> --result <CODE>
-   a. PASS ✅ → 進入下一步
+1. 執行 Step N 的任務（內容在 steps/step_N.md 或 SKILL.md 的 Step 0）
+2. 更新 notes/execution-log.md（記錄做了什麼、結果、決策、問題）
+3. 執行 checkpoint：./chk --step <N> --result <CODE>
+   a. PASS ✅ → chk 會顯示「下一步」指引，告訴你去看哪個檔案
    b. FAIL ❌ → 根據錯誤訊息修正 → 重新執行 chk 直到 PASS
-5. 未通過 checkpoint 不得進入下一步
+4. 未通過 checkpoint 就不知道下一步做什麼——無法跳過
 ```
+
+### 為什麼要這樣設計？
+
+**未通過 chk 就不知道下一步做什麼**，這徹底阻斷了 agent 跳過步驟的可能性。
 
 ### 使用 chk 工具
 
@@ -83,7 +82,7 @@ git log --since=2026-08-20 --oneline -- <相關路徑>
 # 查看某步驟的驗收標準
 ./chk --step <N> --help
 
-# 驗證並記錄步驟通過
+# 驗證並記錄步驟通過（通過後會顯示下一步指引）
 ./chk --step <N> --result <CODE>
 
 # 查看所有步驟狀態
@@ -95,8 +94,8 @@ git log --since=2026-08-20 --oneline -- <相關路徑>
 
 ### 使用 Progressive Disclosure
 
-- 不要一次讀取所有 chapters/ 檔案
-- 只在需要時讀取當前步驟的詳細說明
+- 不要一次讀取所有 `steps/` 檔案——**你不需要、也不應該知道後續步驟的內容**
+- 只在 `chk` 指引你去看某個檔案時才讀取它
 - 應變方案只在遇到對應狀況時才查
 
 ### 使用 Subagent 分工
@@ -111,11 +110,11 @@ git log --since=2026-08-20 --oneline -- <相關路徑>
    - 任務的 context、身份、output contract 透過 `herdr_agent prompt` 傳遞，不要塞進 agentArgs
    - 如果需要 git 改檔，開 worktree 並把 cwd 指向 worktree
 
-2. **⚠️ subagent 的 prompt 中必須包含「先 SSH 到遠端主機」**：
-   ```bash
-   ssh ${RDNA_DEV_HOST%:*}
-   ```
-   所有 bash 命令都在 SSH 連線後執行。檔案操作（read/write/edit）仍在本地執行。
+2. **⚠️ subagent 的遠端指令使用 `ssh` 前綴模式**：
+   - 不是先 `ssh host` 連過去，而是每個指令前面加上 `ssh <host> <command>`
+   - 例如：`ssh jbackend ls` 而不是先連過去再執行 `ls`
+   - 只有需要存取遠端資源的指令才需要加前綴
+   - 檔案操作（read/write/edit）仍在本地執行
 
 3. **Reviewer 永遠是獨立 agent**：不可與執行該階段的 Worker 共用同一個 agent。
 

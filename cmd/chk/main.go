@@ -19,6 +19,7 @@ type ChkStep struct {
 	Title          string `json:"title"`
 	ExpectedResult string `json:"expected_result"`
 	Help           string `json:"help"`
+	NextOnPass     string `json:"next_on_pass,omitempty"`
 }
 
 // ChkState represents the persistent state file
@@ -138,6 +139,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "警告: 無法寫入狀態: %v\n", err)
 		}
 		fmt.Printf("PASS ✅ 步驟 %s (%s) 通過。\n", step, stepDef.Title)
+		if stepDef.NextOnPass != "" {
+			fmt.Println()
+			fmt.Println("📖 下一步:")
+			fmt.Println(stepDef.NextOnPass)
+		}
 		os.Exit(0)
 	} else {
 		fmt.Printf("FAIL ❌ 步驟 %s (%s) 未通過。\n", step, stepDef.Title)

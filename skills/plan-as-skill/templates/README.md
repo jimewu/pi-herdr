@@ -20,10 +20,12 @@
 
 ### 結構
 - [ ] `skills/<plan-name>/` 目錄已建立
-- [ ] `skills/<plan-name>/SKILL.md` 存在（入口）
-- [ ] `skills/<plan-name>/chk.json` 存在（checkpoint 定義）
+- [ ] `skills/<plan-name>/SKILL.md` 存在（入口，只揭露 Step 0）
+- [ ] `skills/<plan-name>/steps/` 目錄存在（後續步驟的詳細內容）
+- [ ] `skills/<plan-name>/steps/step_1.md` 等步驟檔案存在
+- [ ] `skills/<plan-name>/chk.json` 存在（checkpoint 定義，含 next_on_pass）
 - [ ] `skills/<plan-name>/chk` 存在（二進位檔，從 plan-as-skill 複製）
-- [ ] `skills/<plan-name>/chapters/` 目錄存在（選擇性：階段細節）
+- [ ] `skills/<plan-name>/chapters/` 目錄存在（選擇性：輔助章節）
 - [ ] `skills/<plan-name>/indexes/` 目錄存在（選擇性：輔助索引）
 - [ ] `skills/<plan-name>/notes/` 目錄存在（執行後記錄）
 
