@@ -2,3 +2,8 @@ node_modules/
 .herdr-wt/
 # local model capability table (environment-measured; never publish)
 agents/thinking-classes.json
+# chk state files (machine-specific, never publish)
+.chkstate.json
+# chk binary (built locally, root level only)
+/chk
+/chk.exe

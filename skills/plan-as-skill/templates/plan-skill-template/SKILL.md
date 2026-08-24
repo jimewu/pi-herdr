@@ -5,14 +5,15 @@ metadata:
   plan-date: YYYY-MM-DD
   package: <所屬 package，如 pi-herdr>
   plan-skill: true
-  plan-as-skill-version: ">=1.1.0"
+  plan-as-skill-version: ">=1.2.0"
 ---
 
 # Plan: <計畫名稱>
 
 > ⚠️ 這是一個 plan-skill。你的任務是**執行這個計畫**。
-> 先完整閱讀本 SKILL.md 了解全貌，然後從 Phase 0 開始逐步執行。
-> 執行過程中持續寫 log 到 `notes/execution-log.md`，每個階段結束時追加。
+> 先完整閱讀本 SKILL.md 了解全貌，然後從 **Step 0** 開始逐步執行。
+> 每個步驟都有編號與對應的 `chk` checkpoint。**未通過 checkpoint 不得進入下一步。**
+> 執行過程中必須持續寫 log 到 `notes/execution-log.md`，每個步驟結束時、執行 `chk` 之前追加。
 
 ---
 
@@ -62,8 +63,16 @@ metadata:
 
 ## 執行步驟
 
-### Phase 0: 行前檢查
+> ⚠️ **重要規則**：
+> 1. 每個步驟執行完畢後，必須先更新 `notes/execution-log.md`，再執行 `chk --step <N> --result <CODE>`
+> 2. 如果 `chk` 回傳 FAIL，根據錯誤訊息修改後，重新執行 `chk` 直到 PASS
+> 3. 未通過 checkpoint 不得進入下一步
+> 4. 如果需要使用 subagent，subagent 的 prompt 中必須包含「先 SSH 到遠端主機」的指令
+> 5. 每次重試前必須記錄失敗原因到 log，且調整策略（不只用同樣方法再試一次）
 
+### Step 0: 行前檢查
+
+**編號**: `0`
 **預估**: input ~X-Y K / output ~X-Y K
 **model**: `PI_MODEL_DEFAULT` / **thinking**: off
 
@@ -78,14 +87,15 @@ metadata:
    - [ ] <repo 2>：同上
 
 3. **決策點**
-   - 全部通過 → 進入 Phase 1
+   - 全部通過 → 更新 log → 執行 `chk --step 0 --result PREFLIGHT_PASS`
    - 有重大變更 → 評估是否需要調整計畫，必要時問 USER
    - 環境變數未設定 → 停止，請 USER 設定
 
 ---
 
-### Phase 1: <階段名稱>
+### Step 1: <階段名稱>
 
+**編號**: `1`
 **預估**: input ~X-Y K / output ~X-Y K
 **model**: `PI_MODEL_*` / **thinking**: <level>
 
@@ -95,35 +105,42 @@ metadata:
 2. 步驟 2
 3. ...
 
-**決策點**: 目標達成後，進入 Phase 2（或下一個階段）
+**完成條件**: 目標達成後，更新 log → 執行 `chk --step 1 --result STEP1_DONE`
 
 ---
 
-### Phase 2: <階段名稱>
+### Step 2: <階段名稱>
 
-<!-- 如果有多個分支，用以下格式 -->
+**編號**: `2`
+**預估**: input ~X-Y K / output ~X-Y K
+**model**: `PI_MODEL_*` / **thinking**: <level>
 
-**分支 A**: <情況說明>
+如果有多個分支，用以下格式：
+
+**分支 2a**: <情況說明>
 ```
 1. 步驟 1
 2. 步驟 2
 ```
+**完成條件**: 更新 log → 執行 `chk --step 2a --result BRANCH_A_DONE`
 
-**分支 B**: <情況說明>
+**分支 2b**: <情況說明>
 ```
 1. 步驟 1
 2. 步驟 2
 ```
+**完成條件**: 更新 log → 執行 `chk --step 2b --result BRANCH_B_DONE`
 
-**決策點**: 基本功能成功後，進入驗收階段
+**主步驟完成條件**: 所有分支完成後，更新 log → 執行 `chk --step 2 --result STEP2_DONE`
 
 ---
 
-### Phase 3: 驗收
+### Step 3: 驗收
 
+**編號**: `3`
 **預估**: input ~X-Y K / output ~X-Y K
 **model**: `PI_MODEL_FALLBACK_HIGH` / **thinking**: high
-**由獨立 reviewer subagent 執行**
+**由獨立 reviewer subagent 執行**（subagent 必須先 SSH 到遠端主機）
 
 #### Validation Endpoint（滿足 USER 目標）
 
@@ -143,10 +160,13 @@ metadata:
 - 未通過 → 送回前一階段重工（最多 `PI_PLAN_MAX_RETRY` 次）
 - 超過上限 → escalate 給 USER
 
+**完成條件**: 所有驗收通過後，更新 log → 執行 `chk --step 3 --result ACCEPTANCE_PASS`
+
 ---
 
-### Phase 4: 收尾
+### Step 4: 收尾
 
+**編號**: `4`
 **預估**: input ~X-Y K / output ~X-Y K
 **model**: `PI_MODEL_DEFAULT` / **thinking**: off
 
@@ -154,6 +174,42 @@ metadata:
 2. 寫 Log 與 Notes
 3. 清理：如果使用 worktree 模式，關 pane + 刪 worktree + 刪 branch
 4. 報告 USER 執行結果
+5. 執行 `chk --step 4 --result WRAPUP_DONE`
+
+---
+
+## `chk` 驗收檢查工具
+
+本 plan-skill 目錄下有 `chk.json` 和 `chk` 二進位檔，定義了每個步驟的 checkpoint 驗收標準。
+
+### 使用方法
+
+```bash
+# 查看某步驟的驗收標準
+./chk --step <N> --help
+
+# 驗證並記錄某步驟通過（必須先更新 log）
+./chk --step <N> --result <CODE>
+
+# 查看所有步驟的當前狀態
+./chk --list
+
+# 重置所有狀態（開始新執行）
+./chk --reset
+```
+
+### 執行流程示意
+
+```
+┌─────────────────────────────────────────────────┐
+│  執行 Step N                                     │
+│  → 完成所有子任務                                │
+│  → 更新 notes/execution-log.md                  │
+│  → chk --step N --result <CODE>                 │
+│    ├── PASS ✅ → 進入 Step N+1                  │
+│    └── FAIL ❌ → 修正問題 → 重新執行 chk        │
+└─────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -164,14 +220,28 @@ metadata:
 ```
 Orchestrator (plan runner)
   │
-  ├── Phase 0: 行前檢查 (orchestrator 親自執行)
-  ├── Phase 1: <名稱> (orchestrator 親自執行 / 或 subagent)
-  │     └── (失敗) ──→ Phase 1 (重試, 最多 PI_PLAN_MAX_RETRY 次)
-  ├── Phase 2: 驗收 (獨立 reviewer subagent, 唯讀)
-  │     ├── (pass) ──→ Phase 3
-  │     └── (fail) ──→ Phase 1 (重試)
-  └── Phase 3: 收尾 (orchestrator 親自執行)
+  ├── Step 0: 行前檢查 (orchestrator 親自執行) → chk
+  ├── Step 1: <名稱> (orchestrator 親自執行 / 或 subagent)
+  │     └── (失敗) ──→ Step 1 (重試, 最多 PI_PLAN_MAX_RETRY 次)
+  ├── Step 2: <名稱> (subagent, 須先 SSH 到遠端主機)
+  │     ├── 2a: <分支 A> → chk
+  │     ├── 2b: <分支 B> → chk
+  │     └── (失敗) ──→ Step 2 (重試)
+  ├── Step 3: 驗收 (獨立 reviewer subagent, 唯讀, 須先 SSH)
+  │     ├── (pass) → chk → Step 4
+  │     └── (fail) ──→ Step 2 (重試)
+  └── Step 4: 收尾 (orchestrator 親自執行) → chk
 ```
+
+---
+
+## Subagent 使用規範
+
+> ⚠️ 任何 subagent 的 prompt 中，**必須包含以下規則**：
+> 1. 先 SSH 到遠端主機：`ssh ${RDNA_DEV_HOST%:*}`
+> 2. 所有 bash 命令都在 SSH 連線後執行
+> 3. 檔案操作（read/write/edit）仍在本地執行
+> 4. 完成後必須更新 log 到指定路徑
 
 ---
 

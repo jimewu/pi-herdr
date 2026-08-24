@@ -135,6 +135,68 @@ herdr_package resolve ["<package-name>"]
 mkdir -p skills/<plan-name>/{chapters,indexes,notes}
 ```
 
+## 步驟 7：建立 chk.json 與 chk binary
+
+在 plan-skill 目錄下建立 `chk.json`，定義每個步驟的 checkpoint。
+
+### chk.json 格式
+
+```json
+{
+  "plan": "<計畫名稱>",
+  "steps": {
+    "0": {
+      "title": "Step 0: 行前檢查",
+      "expected_result": "PREFLIGHT_PASS",
+      "help": "## Step 0: 行前檢查\n\n### 檢查清單\n- [ ] 檢查項目 1\n- [ ] 檢查項目 2\n\n### 通過編碼\nPREFLIGHT_PASS — 全部檢查通過"
+    },
+    "1": {
+      "title": "Step 1: ...",
+      "expected_result": "STEP1_DONE",
+      "help": "..."
+    }
+  }
+}
+```
+
+### 編碼慣例
+
+| 步驟類型 | 編碼慣例 | 範例 |
+|---------|---------|------|
+| 行前檢查 | `PREFLIGHT_PASS` | `PREFLIGHT_PASS` |
+| 一般步驟 | `STEP<N>_DONE` | `STEP1_DONE` |
+| 分支步驟 | `BRANCH_<NAME>_DONE` | `BRANCH_A_DONE` |
+| 驗收 | `ACCEPTANCE_PASS` | `ACCEPTANCE_PASS` |
+| 收尾 | `WRAPUP_DONE` | `WRAPUP_DONE` |
+
+### 建立 chk binary
+
+```bash
+# 從 plan-as-skill 目錄複製 chk 二進位檔
+cp <plan-as-skill-path>/chk skills/<plan-name>/chk
+```
+
+## 步驟 8：測試
+
+用 pi CLI 開一個新 session 載入新建的 plan-skill，問以下問題確認 agent 理解：
+
+```
+1. 你的任務是什麼？
+2. 總共有幾個 step？編號是什麼？
+3. Step 0 要做什麼？
+4. 需要哪些環境變數？
+5. 驗收標準是什麼？
+6. 每個步驟結束後要做什麼？（先更新 log，再執行 chk）
+7. 如果 chk 回傳 FAIL，你該怎麼做？
+8. 如果 XXX（某個應變方案中的狀況）發生，你該怎麼做？
+9. 當計畫指定使用 subagent 時，你該怎麼確保它拿到需要的工具和上下文？
+10. Subagent 的 prompt 中必須包含什麼指令？（先 SSH 到遠端主機）
+```
+
+如果 agent 理解正確，plan-skill 就完成了。
+
+---
+
 ## 檢查清單
 
 建立完成後，檢查以下項目：
@@ -144,8 +206,24 @@ mkdir -p skills/<plan-name>/{chapters,indexes,notes}
 - [ ] 沒有硬編碼具體路徑（改用 env 或相對路徑）
 - [ ] 有明確的 Scope 和不包含項目
 - [ ] 有研究結論（已知前提與證據來源）
-- [ ] 有 Phase 0: 行前檢查
-- [ ] 每個階段有決策點
+- [ ] 有 Step 0: 行前檢查
+- [ ] 每個步驟有編號（0, 1, 2, 2a, 2b, ...）
+- [ ] 每個步驟結束點有 `chk --step <N> --result <CODE>` 閘門
+- [ ] 有 chk.json 和 chk binary
+- [ ] Subagent 使用規範包含 SSH 指令
+- [ ] 每個步驟有 model 建議（使用 `PI_MODEL_*`）
+- [ ] 每個步驟有決策點
 - [ ] 有驗收標準（validation + verification）
 - [ ] 有應變方案
 - [ ] 有參考資料
+
+---
+
+## 注意事項
+
+1. **不要一次寫太大**：一個 plan-skill 的 SKILL.md 保持在 10-15KB 以內，細節放 chapters/
+2. **不要重複寫**：如果某個階段的說明已存在於另一個 skill 或 reference 中，用連結引用就好
+3. **不要寫死路徑**：所有路徑用 env 變數或相對路徑
+4. **不要寫死 model**：用 `PI_MODEL_*` 等級
+5. **不要遺漏 chk**：chk 是強制閘門，沒有 chk 的 plan-skill 無法保證遵從度
+6. **plan-as-skill 本身**：如果在建立 plan-skill 時需要參考 meta-skill，先讀取本章（ch02），需要時再讀取其他 ch0x

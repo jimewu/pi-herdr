@@ -2,7 +2,7 @@
 name: plan-as-skill
 description: "Plan-as-Skill 是「如何建立與執行 plan-skill」的 meta-skill。它定義了 plan-skill 的結構、progressive disclosure 原則、以及執行時的行前檢查、new commits 驗證、agent 拓樸設計、雙層驗收 endpoint 等規範。當你載入一個具體的 plan-skill（如 r9700-qwen3.8-sglang）時，那個 skill 才是要執行的計畫；本 skill 是你的參考手冊。"
 metadata:
-  version: 1.1.0
+  version: 1.2.0
   mode: reference
   package: pi-herdr
   depends: herdr-with-pi
@@ -44,6 +44,9 @@ Plan-as-Skill 是一套將**執行計畫編碼為 agent skill** 的方法論。�
 ```
 skills/<plan-name>/
 ├── SKILL.md              ← 入口：計畫總覽 + 執行指引（L0）
+├── chk.json              ← 各步驟的 checkpoint 驗收定義
+├── chk                   ← Go 編譯的 CLI 二進位檔（從 plan-as-skill 複製）
+├── .chkstate.json        ← 執行狀態（自動產生，gitignored）
 ├── chapters/             ← 各階段詳細說明（L1，progressive disclosure）
 │   ├── phase-00-pre-flight.md
 │   ├── phase-01-xxx.md
@@ -65,7 +68,7 @@ metadata:
   plan-date: YYYY-MM-DD
   package: <所屬 package>
   plan-skill: true          # 標記這是一個 plan-skill
-  plan-as-skill-version: ">=1.1.0"  # 遵循的 meta-skill 版本
+  plan-as-skill-version: ">=1.2.0"  # 遵循的 meta-skill 版本
 ---
 
 # <計畫名稱>
@@ -113,11 +116,16 @@ metadata:
 - 哪些階段需要獨立的 reviewer？
 - 使用 worktree 模式還是小任務模式？
 
-### 步驟 3：定義驗收標準
+### 步驟 3：定義驗收標準 + 編號 + chk checkpoint
 
 每個階段都要有兩類驗收 endpoint：
 - **Validation**: 滿足 USER 目標的標準
 - **Verification**: 技術方案達標的標準
+
+同時，每個步驟必須：
+1. **編號**：使用 `0, 1, 2, 2a, 2b, 2b-1, 2b-2, ...` 格式，確保編號唯一且可排序
+2. **定義 chk checkpoint**：在 `chk.json` 中為每個步驟定義 `expected_result` 和 `help`（含驗收清單）
+3. **每個步驟結束點**：必須有 `chk --step <N> --result <CODE>` 作為強制閘門
 
 ### 步驟 4：找出 Pi Packages 資源
 
@@ -147,15 +155,42 @@ herdr_package resolve ["<package-name>"]
 
 寫完後，參考 `templates/README.md` 的檢查清單確認沒有遺漏。
 
-### 步驟 7：測試
+### 步驟 7：建立 chk.json 與 chk binary
+
+在 plan-skill 目錄下建立 `chk.json`，定義每個步驟的 checkpoint。
+
+```json
+{
+  "plan": "<計畫名稱>",
+  "steps": {
+    "0": {
+      "title": "Step 0: 行前檢查",
+      "expected_result": "PREFLIGHT_PASS",
+      "help": "## Step 0: 行前檢查\n\n### 檢查清單\n- [ ] 檢查項目 1\n- [ ] 檢查項目 2\n\n### 通過編碼\nPREFLIGHT_PASS — 全部檢查通過"
+    },
+    "1": {
+      "title": "Step 1: ...",
+      "expected_result": "STEP1_DONE",
+      "help": "..."
+    }
+  }
+}
+```
+
+然後從 plan-as-skill 目錄複製 `chk` 二進位檔到 plan-skill 目錄。
+
+### 步驟 8：測試
 
 用 pi CLI 開一個新 session 載入新建的 plan-skill，問以下問題確認 agent 理解：
 
 ```
 1. 你的任務是什麼？
-2. 總共有幾個 phase？
-3. Phase 0 要做什麼？
+2. 總共有幾個 step？編號是什麼？
+3. Step 0 要做什麼？
 4. 驗收標準是什麼？
+5. 每個步驟結束後要做什麼？
+6. 如果 chk 回傳 FAIL，你該怎麼做？
+7. 如果需要使用 subagent，subagent 的 prompt 中必須包含什麼？
 ```
 
 如果 agent 理解正確，plan-skill 就完成了。
@@ -199,23 +234,38 @@ herdr_package resolve ["<package-name>"]
 - 有重大變更 → 評估是否需要調整計畫，必要時問 USER
 - 環境變數未設定 → 停止，請 USER 設定
 
-### 3. 依序執行各階段，透過 herdr 實際分工
+### 3. 依序執行各步驟，透過 herdr 實際分工
 
-每個階段使用 progressive disclosure：
+每個步驟使用 progressive disclosure：
 - 先讀 `chapters/phase-<N>-<name>.md` 取得詳細說明
-- 如果階段需要 subagent，**一定要透過 herdr 實際分工**，不要自己一個人做
+- 如果步驟需要 subagent，**一定要透過 herdr 實際分工**，不要自己一個人做
 - 確保 delegated agent 獲得需要的工具（`-t`）、pi packages（`-e`）、上下文（`prompt`）
-- 達到驗收標準後進入下一階段
+- **subagent 的 prompt 中必須包含「先 SSH 到遠端主機」的指令**，否則 subagent 會在本地執行
+- 達到驗收標準後執行 `chk --step <N> --result <CODE>`，通過後才能進入下一步
 
-### 4. 持續寫 Log
+### 4. 持續寫 Log + 執行 chk（強制閘門）
 
-執行過程中持續寫 log 到 `notes/execution-log.md`，每個階段結束時追加。
-Log 記錄：做了什麼、用了什麼指令、結果如何、做了什麼決策、遇到什麼問題。
+每個步驟結束時，**先更新 log，再執行 chk**：
+
+```bash
+# 1. 更新 notes/execution-log.md
+# 2. 執行 checkpoint 驗證
+./chk --step <N> --result <CODE>
+
+# 如果回傳 PASS ✅ → 進入下一步
+# 如果回傳 FAIL ❌ → 修正問題，重新執行 chk 直到 PASS
+```
+
+Log 記錄在 `notes/execution-log.md`，每個步驟的內容：
+- 做了什麼、用了什麼指令、結果如何
+- 做了什麼決策
+- 遇到什麼問題、如何解決
 
 ### 5. 處理 Loop 與重試
 
-- 如果某個階段未通過驗收，送回重試
+- 如果某個步驟未通過驗收，送回重試
 - 重試次數上限：`PI_PLAN_MAX_RETRY`（預設 3，從 env 讀取）
+- 每次重試前必須記錄失敗原因到 log，且調整策略（不只用同樣方法再試一次）
 - 超過上限 → escalate 給 USER
 
 ### 6. 寫 Notes
@@ -224,6 +274,36 @@ Log 記錄：做了什麼、用了什麼指令、結果如何、做了什麼決�
 這與 log 不同：log 是過程記錄，notes 是事後總結與建議，供下次迭代參考。
 
 ---
+
+## chk 目錄結構
+
+每個 plan-skill 目錄下應包含 `chk.json` 和 `chk` 二進位檔：
+
+```
+skills/<plan-name>/
+├── SKILL.md              ← 入口（含編號步驟 + chk checkpoint 標記）
+├── chk.json              ← 各步驟的驗收定義
+├── chk                   ← Go 編譯的 CLI 二進位檔（從 plan-as-skill 複製）
+├── .chkstate.json        ← 執行狀態（自動產生，gitignored）
+├── chapters/
+├── indexes/
+└── notes/
+```
+
+### 建立 chk.json 的規則
+
+每個步驟的 `expected_result` 是字串編碼，agent 必須在完成步驟後用 `chk --step <N> --result <CODE>` 宣告。
+
+編碼慣例：
+- 行前檢查通過 → `PREFLIGHT_PASS`
+- 一般步驟完成 → `STEP<N>_DONE`（如 `STEP1_DONE`）
+- 分支步驟完成 → `BRANCH_<NAME>_DONE`（如 `BRANCH_A_DONE`）
+- 驗收通過 → `ACCEPTANCE_PASS`
+- 收尾完成 → `WRAPUP_DONE`
+
+每個 `help` 欄位必須包含：
+1. 該步驟的驗收清單（`- [ ]` 格式）
+2. 通過編碼的說明
 
 ## 與 herdr-with-pi 的關係
 
