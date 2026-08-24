@@ -290,7 +290,7 @@ func loadState(path string, signingKey []byte) *ChkState {
 	state.HMAC = ""
 	if storedHMAC != "" {
 		// Verify HMAC
-		cleanData, _ := json.Marshal(state)
+		cleanData, _ := json.MarshalIndent(state, "", "  ")
 		expectedMAC := computeHMAC(cleanData, signingKey)
 		if storedHMAC != expectedMAC {
 			fmt.Fprintf(os.Stderr, "⚠️  警告: .chkstate.json 已被竄改，完整性驗證失敗。重置狀態。\n")
@@ -324,37 +324,16 @@ func computeHMAC(data []byte, key []byte) string {
 }
 
 func deriveSigningKey(cfgDir string, configPath string) []byte {
-	// Key = SHA256(binary_self_path + binary_self_hash + cfgDir + chk.json_content)
-	// This makes the key depend on the compiled binary, not just source-accessible files
+	// Key = SHA256(cfgDir + chk.json_content)
+	// Deterministic: same chk.json always produces the same key.
+	// This is NOT a security mechanism against intentional forgery.
+	// It only prevents accidental state corruption / trivial text editing.
 	h := sha256.New()
-
-	// Include the chk binary's own executable path
-	exePath, err := os.Executable()
-	if err == nil {
-		h.Write([]byte(exePath))
-		// Include a hash of the binary's own content
-		if exeData, err := os.ReadFile(exePath); err == nil {
-			// Use first 64KB + last 1KB of the binary as key material
-			sampleSize := 65536
-			if len(exeData) < sampleSize {
-				sampleSize = len(exeData)
-			}
-			h.Write(exeData[:sampleSize])
-			if len(exeData) > 1024 {
-				h.Write(exeData[len(exeData)-1024:])
-			}
-		}
-	}
-
-	// Include directory path
 	h.Write([]byte(cfgDir))
-
-	// Include chk.json content
 	data, err := os.ReadFile(configPath)
 	if err == nil {
 		h.Write(data)
 	}
-
 	return h.Sum(nil)
 }
 
