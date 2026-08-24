@@ -1,6 +1,9 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -18,20 +21,22 @@ type ChkConfig struct {
 type ChkStep struct {
 	Title          string `json:"title"`
 	ExpectedResult string `json:"expected_result"`
-	Help           string `json:"help"`
+	StepContent    string `json:"step_content,omitempty"`
 	NextOnPass     string `json:"next_on_pass,omitempty"`
+	Help           string `json:"help"`
 }
 
 // ChkState represents the persistent state file
 type ChkState struct {
-	Results map[string]string `json:"results"`
+	Results  map[string]string `json:"results"`
+	HMAC     string            `json:"hmac,omitempty"`
 }
 
 func main() {
-	// Parse args
 	showHelp := false
 	listSteps := false
 	resetState := false
+	showStep := false
 	step := ""
 	result := ""
 	configPath := ""
@@ -48,6 +53,8 @@ func main() {
 				i++
 				step = args[i]
 			}
+		case "--show", "-S":
+			showStep = true
 		case "--result", "-r":
 			if i+1 < len(args) {
 				i++
@@ -63,19 +70,19 @@ func main() {
 		}
 	}
 
-	// Load config (find the directory where chk.json lives)
-	cfg, cfgDir, err := loadConfig(configPath)
+	cfg, cfgDir, cfgPath, err := loadConfig(configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "錯誤: 無法載入 chk.json: %v\n", err)
 		os.Exit(1)
 	}
 
-	// State file path
+	// Derive signing key from chk.json content to protect state integrity
+	signingKey := deriveSigningKey(cfgDir, cfgPath)
+
 	statePath := filepath.Join(cfgDir, ".chkstate.json")
 
-	// --reset
 	if resetState {
-		if err := writeState(statePath, &ChkState{Results: map[string]string{}}); err != nil {
+		if err := writeState(statePath, &ChkState{Results: map[string]string{}}, signingKey); err != nil {
 			fmt.Fprintf(os.Stderr, "錯誤: 無法重置狀態: %v\n", err)
 			os.Exit(1)
 		}
@@ -83,16 +90,13 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Load state
-	state := loadState(statePath)
+	state := loadState(statePath, signingKey)
 
-	// If no step specified with --list, or just --help without --step, show usage
 	if step == "" && !listSteps {
 		printUsage()
 		os.Exit(0)
 	}
 
-	// --list
 	if listSteps {
 		fmt.Printf("計畫: %s\n", cfg.Plan)
 		fmt.Println("步驟清單:")
@@ -118,24 +122,40 @@ func main() {
 		os.Exit(1)
 	}
 
-	// --step <N> --help
+	// Check dependency: all previous steps must pass before we can access this step
+	if !canAccessStep(step, cfg, state) {
+		fmt.Fprintf(os.Stderr, "❌ 步驟 %s 的上一步驟尚未通過。\n", step)
+		fmt.Fprintf(os.Stderr, "請先完成上一步驟並通過 chk 檢查。\n")
+		fmt.Fprintf(os.Stderr, "使用 'chk --list' 查看當前狀態。\n")
+		os.Exit(1)
+	}
+
+	// --step <N> --show: show step content (only if dependency passed)
+	if showStep {
+		if stepDef.StepContent != "" {
+			fmt.Println(stepDef.StepContent)
+		} else {
+			fmt.Fprintf(os.Stderr, "步驟 %s 沒有 step_content 定義。\n", step)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
+	// --step <N> --help: show help + acceptance criteria
 	if showHelp {
 		printStepHelp(step, stepDef, state)
 		os.Exit(0)
 	}
 
-	// --step <N> (without --result)
 	if result == "" {
 		fmt.Fprintf(os.Stderr, "錯誤: 需要 --result 參數。使用 --help 查看可接受的結果編碼。\n")
 		os.Exit(1)
 	}
 
-	// --step <N> --result <code>
 	expected := stepDef.ExpectedResult
 	if result == expected {
-		// Record the pass in state
 		state.Results[step] = result
-		if err := writeState(statePath, state); err != nil {
+		if err := writeState(statePath, state, signingKey); err != nil {
 			fmt.Fprintf(os.Stderr, "警告: 無法寫入狀態: %v\n", err)
 		}
 		fmt.Printf("PASS ✅ 步驟 %s (%s) 通過。\n", step, stepDef.Title)
@@ -161,17 +181,65 @@ func main() {
 	}
 }
 
-func loadConfig(path string) (*ChkConfig, string, error) {
-	if path == "" {
-		// Try current directory, then parent
+// canAccessStep checks if all prerequisite steps have passed.
+// Prerequisite = any step whose ID is strictly less than this step.
+// For branch steps like "2a", the prerequisite is "2" (must not have passed "2" yet).
+// For main steps like "2", prerequisite is "1" (must have passed "1").
+func canAccessStep(step string, cfg *ChkConfig, state *ChkState) bool {
+	// Step 0 has no prerequisites
+	if step == "0" {
+		return true
+	}
+
+	// Find the immediate prerequisite step ID
+	prereq := findPrerequisite(step, cfg)
+
+	// If no prerequisite found, allow access (fallback)
+	if prereq == "" {
+		return true
+	}
+
+	// Check if prerequisite passed
+	r, ok := state.Results[prereq]
+	return ok && r == cfg.Steps[prereq].ExpectedResult
+}
+
+// findPrerequisite determines the prerequisite step ID.
+// For "2a", prereq is "2" (but only if "2" hasn't passed yet — it's a sub-step of 2)
+// For "2", prereq is "1"
+// For "2b-3", prereq is "2b"
+func findPrerequisite(step string, cfg *ChkConfig) string {
+	// Get sorted keys
+	keys := sortedKeys(cfg.Steps)
+
+	// Find our position
+	ourIdx := -1
+	for i, k := range keys {
+		if k == step {
+			ourIdx = i
+			break
+		}
+	}
+
+	if ourIdx <= 0 {
+		return ""
+	}
+
+	// The immediate previous step in sorted order is the prerequisite
+	return keys[ourIdx-1]
+}
+
+func loadConfig(path string) (*ChkConfig, string, string, error) {
+	configPath := path
+	if configPath == "" {
 		dir, err := os.Getwd()
 		if err != nil {
-			return nil, "", err
+			return nil, "", "", err
 		}
 		for {
 			candidate := filepath.Join(dir, "chk.json")
 			if _, err := os.Stat(candidate); err == nil {
-				path = candidate
+				configPath = candidate
 				break
 			}
 			parent := filepath.Dir(dir)
@@ -182,29 +250,29 @@ func loadConfig(path string) (*ChkConfig, string, error) {
 		}
 	}
 
-	if path == "" {
-		return nil, "", fmt.Errorf("找不到 chk.json。請在 plan-skill 目錄或上層目錄放置 chk.json。")
+	if configPath == "" {
+		return nil, "", "", fmt.Errorf("找不到 chk.json。請在 plan-skill 目錄或上層目錄放置 chk.json。")
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return nil, "", fmt.Errorf("讀取 %s 失敗: %w", path, err)
+		return nil, "", "", fmt.Errorf("讀取 %s 失敗: %w", configPath, err)
 	}
 
 	var cfg ChkConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, "", fmt.Errorf("解析 %s 失敗: %w", path, err)
+		return nil, "", "", fmt.Errorf("解析 %s 失敗: %w", configPath, err)
 	}
 
 	if cfg.Steps == nil {
-		return nil, "", fmt.Errorf("%s 中沒有定義任何步驟", path)
+		return nil, "", "", fmt.Errorf("%s 中沒有定義任何步驟", configPath)
 	}
 
-	cfgDir := filepath.Dir(path)
-	return &cfg, cfgDir, nil
+	cfgDir := filepath.Dir(configPath)
+	return &cfg, cfgDir, configPath, nil
 }
 
-func loadState(path string) *ChkState {
+func loadState(path string, signingKey []byte) *ChkState {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return &ChkState{Results: map[string]string{}}
@@ -216,51 +284,105 @@ func loadState(path string) *ChkState {
 	if state.Results == nil {
 		state.Results = map[string]string{}
 	}
+
+	// Verify HMAC integrity
+	storedHMAC := state.HMAC
+	state.HMAC = ""
+	if storedHMAC != "" {
+		// Verify HMAC
+		cleanData, _ := json.Marshal(state)
+		expectedMAC := computeHMAC(cleanData, signingKey)
+		if storedHMAC != expectedMAC {
+			fmt.Fprintf(os.Stderr, "⚠️  警告: .chkstate.json 已被竄改，完整性驗證失敗。重置狀態。\n")
+			return &ChkState{Results: map[string]string{}}
+		}
+	}
+	state.HMAC = storedHMAC
 	return &state
 }
 
-func writeState(path string, state *ChkState) error {
+func writeState(path string, state *ChkState, signingKey []byte) error {
+	// Clear HMAC before marshaling, then compute MAC
+	state.HMAC = ""
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	state.HMAC = computeHMAC(data, signingKey)
+	// Re-marshal with HMAC
+	dataWithHMAC, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, dataWithHMAC, 0644)
+}
+
+func computeHMAC(data []byte, key []byte) string {
+	mac := hmac.New(sha256.New, key)
+	mac.Write(data)
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func deriveSigningKey(cfgDir string, configPath string) []byte {
+	// Key = SHA256(binary_self_path + binary_self_hash + cfgDir + chk.json_content)
+	// This makes the key depend on the compiled binary, not just source-accessible files
+	h := sha256.New()
+
+	// Include the chk binary's own executable path
+	exePath, err := os.Executable()
+	if err == nil {
+		h.Write([]byte(exePath))
+		// Include a hash of the binary's own content
+		if exeData, err := os.ReadFile(exePath); err == nil {
+			// Use first 64KB + last 1KB of the binary as key material
+			sampleSize := 65536
+			if len(exeData) < sampleSize {
+				sampleSize = len(exeData)
+			}
+			h.Write(exeData[:sampleSize])
+			if len(exeData) > 1024 {
+				h.Write(exeData[len(exeData)-1024:])
+			}
+		}
+	}
+
+	// Include directory path
+	h.Write([]byte(cfgDir))
+
+	// Include chk.json content
+	data, err := os.ReadFile(configPath)
+	if err == nil {
+		h.Write(data)
+	}
+
+	return h.Sum(nil)
 }
 
 func printStepHelp(step string, stepDef ChkStep, state *ChkState) {
+	// Show the step content (task instructions) first
+	if stepDef.StepContent != "" {
+		fmt.Println(stepDef.StepContent)
+		fmt.Println()
+		fmt.Println("---")
+		fmt.Println()
+	}
+
+	// Then show acceptance criteria
+	fmt.Println("## 驗收標準")
 	fmt.Println(stepDef.Help)
 	fmt.Println()
-	// Show dependencies: check if previous steps passed
-	keys := sortedKeysFromState(state)
-	fmt.Println("相依性檢查:")
-	for _, k := range keys {
-		if k == step {
-			break
-		}
-		r, ok := state.Results[k]
-		if ok && r != "" {
-			fmt.Printf("  ✅ 步驟 %s: 已完成\n", k)
-		} else {
-			fmt.Printf("  ❌ 步驟 %s: 尚未通過 — 請先完成此步驟\n", k)
-		}
-	}
-}
-
-func sortedKeysFromState(state *ChkState) []string {
-	keys := make([]string, 0, len(state.Results))
-	for k := range state.Results {
-		keys = append(keys, k)
-	}
-	sortStrings(keys)
-	return keys
+	fmt.Println("## 相依性檢查:")
+	// Show dependency info
+	fmt.Printf("  ✅ 你正在執行步驟 %s\n", step)
 }
 
 func printUsage() {
 	fmt.Println(`chk — Plan-Skill 驗收檢查工具
 
 用法:
-  chk --step <N> [--result <code>]  驗證並記錄步驟 N
-  chk --step <N> --help             顯示步驟 N 的驗收標準及相依性
+  chk --step <N> --help             顯示步驟 N 的任務內容 + 驗收標準
+  chk --step <N> --show             僅顯示步驟 N 的任務內容
+  chk --step <N> --result <code>    驗證並記錄步驟 N
   chk --list                        列出所有步驟與當前狀態
   chk --reset                       重置所有步驟狀態
   chk --help                        顯示此說明
@@ -268,16 +390,22 @@ func printUsage() {
 選項:
   --step, -s <N>     步驟編號 (如 0, 1, 2a, 2b-3)
   --result, -r <code> 自我宣告的結果編碼
-  --help, -h         顯示說明
+  --show, -S         顯示步驟的任務內容
+  --help, -h         顯示步驟的任務內容 + 驗收標準
   --list, -l         列出所有步驟與狀態
   --reset            重置狀態
   --file, -f <path>  指定 chk.json 路徑 (預設: 自動尋找)
 
+重要規則:
+  - 未完成前一步驟就無法存取後續步驟的內容
+  - 步驟內容全部嵌入 chk.json，不存放獨立 step_*.md 檔案
+  - 使用 chk --step <N> --help 來查看當前步驟該做什麼
+
 範例:
-  chk --step 0 --result PREFLIGHT_PASS
-  chk --step 1 --help
-  chk --list
-  chk --reset`)
+  chk --step 0 --help      # 查看 Step 0 的任務 + 驗收標準
+  chk --step 0 --result PREFLIGHT_PASS  # 通過 Step 0
+  chk --list               # 查看所有步驟狀態
+  chk --reset              # 重置狀態`)
 }
 
 func sortedKeys(m map[string]ChkStep) []string {
@@ -285,14 +413,11 @@ func sortedKeys(m map[string]ChkStep) []string {
 	for k := range m {
 		keys = append(keys, k)
 	}
-	// Simple sort: natural order for numeric-like keys
-	// For simplicity, string sort is fine for most plan-skill numbering
 	sortStrings(keys)
 	return keys
 }
 
 func sortStrings(s []string) {
-	// Insertion sort by step ID
 	for i := 1; i < len(s); i++ {
 		key := s[i]
 		j := i - 1
@@ -304,13 +429,10 @@ func sortStrings(s []string) {
 	}
 }
 
-// compareStepID compares step IDs like "0", "1", "2a", "2b", "2b-3"
-// Returns -1 if a < b, 0 if equal, 1 if a > b
 func compareStepID(a, b string) int {
 	anum, asuffix := splitStepID(a)
 	bnum, bsuffix := splitStepID(b)
 
-	// Compare as integers if possible
 	ai, aerr := parseInt(anum)
 	bi, berr := parseInt(bnum)
 
@@ -322,7 +444,6 @@ func compareStepID(a, b string) int {
 			return 1
 		}
 	} else {
-		// Fallback to string comparison
 		if anum != bnum {
 			if anum < bnum {
 				return -1
@@ -331,7 +452,6 @@ func compareStepID(a, b string) int {
 		}
 	}
 
-	// Same numeric prefix, compare suffix (e.g., "a" < "b" < "b-1")
 	if asuffix < bsuffix {
 		return -1
 	}
@@ -353,7 +473,6 @@ func parseInt(s string) (int, error) {
 }
 
 func splitStepID(s string) (string, string) {
-	// Find the first non-digit character
 	i := 0
 	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
 		i++
@@ -368,7 +487,6 @@ func padRight(s string, n int) string {
 	return s + strings.Repeat(" ", n-len(s))
 }
 
-// extractChecklist extracts checklist items from help text
 func extractChecklist(help string) []string {
 	var items []string
 	for _, line := range strings.Split(help, "\n") {
