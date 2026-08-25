@@ -362,3 +362,5 @@ herdr_package resolve ["<package-name>"]
 | Plan-Skill | 位置 | 說明 | 規劃日期 |
 |-----------|------|------|----------|
 | [r9700-qwen3.8-sglang](../../r9700-qwen3.8-sglang/SKILL.md) | `skills/r9700-qwen3.8-sglang/` | 在 R9700 上使用 sglang 跑 Qwen3.8-27B AWQ-INT4 | 2026-08-20 |
+| [r9700-qwen38-sglang-phase4](../../r9700-qwen38-sglang-phase4/SKILL.md) | `skills/r9700-qwen38-sglang-phase4/` | WMMA v1 kernel 正確性除錯 → 語義模型建立 → 精確回修 → SGLang 整合 | 2026-08-24 |
+| [r9700-qwen38-sglang-phase5](../../r9700-qwen38-sglang-phase5/SKILL.md) | `skills/r9700-qwen38-sglang-phase5/` | 端到端效能優化：CUDA Graph → context 擴展 → GDN backend | 2026-08-25 |
