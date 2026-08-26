@@ -1,11 +1,20 @@
 ---
 name: herdr-with-pi
-description: "以 Herdr 為基礎的多 agent 協作策略層（herdr-with-pi）。當任務可拆成多個獨立子任務、需要並行探索（try & error）、只要結論不需過程、或想隔離高 token 消耗工作時，建議使用 Herdr 分派 subagent（透過 pi-herdr extension 的 herdr_layout / herdr_pane / herdr_agent tools）。需要 HERDR_ENV=1。"
+description: "以 Herdr 為基礎的多 agent 協作策略層（herdr-with-pi）。當任務可拆成多個獨立子任務、需要並行探索（try & error）、只要結論不需過程、或想隔離高 token 消耗工作時，建議使用 Herdr 分派 subagent（透過 pi-herdr extension 的 herdr_spawn tool，或需要多輪對話時退回到 herdr_layout / herdr_pane / herdr_agent tools）。需要 HERDR_ENV=1。"
 ---
 
 # Herdr 多 agent 協作（策略層）
 
-本 skill（herdr-with-pi）是 [pi-herdr](https://github.com/ogulcancelik/pi-herdr) extension（`herdr_layout` / `herdr_pane` / `herdr_agent` tools）的**策略層**：tools 提供執行能力，本 skill 說明**何時用、怎麼組合、以及 subagent 的分派方式**。兩者搭配使用。
+本 skill（herdr-with-pi）是 [pi-herdr](https://github.com/ogulcancelik/pi-herdr) extension（`herdr_spawn` / `herdr_layout` / `herdr_pane` / `herdr_agent` tools）的**策略層**：tools 提供執行能力，本 skill 說明**何時用、怎麼組合、以及 subagent 的分派方式**。兩者搭配使用。
+
+## 核心原則：用 `herdr_spawn` 減少選項，提高遵從度
+
+`herdr_spawn` 是分派 subagent 的**首要工具**，將原本 5-6 步的手動流程（layout → start → prompt → wait → read → close）濃縮為**一次呼叫**。
+
+- **預設就是正確行爲**：tab 模式（`pane_mode=false`）、完工自動關閉（`keep_alive=false`）、model 從 `PI_MODEL_DEFAULT` 讀取
+- **agent 要犯錯得刻意 opt-in**：不是因爲忘記做某步驟而犯錯
+- **多輪對話**：設 `keep_alive=true`，再透過 `herdr_agent prompt/read` 進行後續回合，最後 `herdr_pane close` 關閉
+- **只在需要特殊拓樸或控制時**才退回到 `herdr_layout` / `herdr_pane` / `herdr_agent` 手動操作
 
 ## 執行前檢查
 
@@ -98,30 +107,46 @@ description: "以 Herdr 為基礎的多 agent 協作策略層（herdr-with-pi）
 { "action": "current" }                           // herdr_layout：確認目前 workspace（tab 模式開 tab 要用）
 ```
 
-### 2. 分派
+### 2. 分派（主要方式：`herdr_spawn`）
 
 ```json
-// herdr_layout：開新 tab 給 subagent（預設 tab 模式；同 workspace、同 cwd、不搶焦點）
-{ "action": "tab_create", "workspace": "<主 agent 所在 workspace>", "label": "<agent 名>", "focus": false }
-// ↑ 回傳的 root pane 即 subagent 的 pane
-
-// herdr_agent：啟動 subagent。agentArgs 只放單行安全參數（見「量身訂做參數」的 ⚠️ 警告）
+// 一次呼叫完成所有步驟：layout → start → prompt → wait → read → close
 {
-  "action": "start",
   "name": "<唯一小寫名>",
-  "kind": "pi",
-  "pane": "<新 tab 的 root pane id>",
-  // model 依 PI_MODEL_* env 選用（見「Subagent model 選擇與 fallback」），啟動前先讀實際值
-  "agentArgs": ["-t", "read,bash", "--model", "<依任務型別選出的 provider/model>"]
+  "prompt": "<任務描述、規則、output contract>",
+  "tools": "read,bash,edit,write",
+  "model": "<依 PI_MODEL_* env 選用>",
+  "thinking": "<依 herdr_thinking 建議選用>",
+  "packages": ["<需要的 pi package 名稱>"],
+  "pane_mode": false,
+  "keep_alive": false,
+  "cwd": "<worktree 路徑（如需要）>"
 }
-
-// herdr_agent：派任務，等結果。身份/規則/output contract 一律放這裡，不要塞 agentArgs
-{ "action": "prompt", "target": "<name>", "prompt": "…", "wait": true, "timeout": 300000 }
 ```
 
-> 使用者明確指定 pane 模式時，才改為 `pane_split` 開 sibling pane（見「版面配置慣例」模式 B）。
+**分派並行任務**：同時呼叫多個 `herdr_spawn`（各自不同 name）。
 
-**分派並行任務**：一次同時送出多個 prompt（各自不同任務），並行 wait。
+> 使用者明確指定 pane 模式時，才設 `pane_mode: true`。
+
+### 2b. 分派（替代方式：多輪對話）
+
+當需要與 subagent 進行**多輪來回溝通**時（例如：先問問題、根據回答再追問），用 `keep_alive: true`：
+
+```json
+// 第一輪：spawn 並保持存活
+{
+  "name": "<唯一小寫名>",
+  "prompt": "<初始任務>",
+  "keep_alive": true
+}
+
+// 後續輪次：使用 herdr_agent 進行多輪對話
+{ "action": "prompt", "target": "<name>", "prompt": "<追問內容>", "wait": true }
+{ "action": "read", "target": "<name>" }
+
+// 結束後手動關閉
+{ "action": "close", "pane": "<pane id>" }  // herdr_pane
+```
 
 ### 3. 監督
 
@@ -133,8 +158,33 @@ description: "以 Herdr 為基礎的多 agent 協作策略層（herdr-with-pi）
 ### 4. 收尾
 
 - orchestrator 親自驗證產出（讀 diff、跑測試）。git repo 內改 code 的任務走 **worktree 工作流**（見下節）：review 通過才 merge，然後**關 pane + 刪 worktree & branch**；不走 worktree 的小任務由 orchestrator **統一 commit**（subagent 不碰 git）
-- **完工即關閉（預設）**：subagent 任務完成、orchestrator 讀取並驗證結果後，**立即 `herdr_pane close <pane id>` 關閉**，回收 pane 空間（tab 模式下關閉該 tab 的 root pane 即可，tab 留空無妨）——**不要**保留已完成任務的 subagent，除非使用者明確要求保留（例如後續還要追問）
+- **完工即關閉（預設）**：`herdr_spawn` 預設會自動關閉。若用 `keep_alive=true`，記得手動 `herdr_pane close`
 - 不要關閉自己所在的 pane（tool 會拒絕）；不要關閉不是自己創建的 pane，除非使用者明確要求
+
+## `herdr_spawn` 工具參數一覽
+
+| 參數 | 類型 | 預設值 | 說明 |
+|------|------|--------|------|
+| `name` | string | **必填** | 唯一 agent 名稱（小寫字母數字+連字號/底線） |
+| `prompt` | string | **必填** | 初始任務（身份、規則、output contract 放這裡） |
+| `kind` | string | `"pi"` | Agent kind |
+| `tools` | string | `"read,bash,edit,write"` | 內建工具白名單 |
+| `model` | string | `PI_MODEL_DEFAULT` env | 完整 `provider/model` 格式 |
+| `thinking` | string | 依 herdr_thinking 建議 | `off/minimal/low/medium/high/xhigh/max` |
+| `packages` | string[] | `[]` | Pi package 名稱（透過 `PI_PACKAGES_DIR` 解析） |
+| `cwd` | string | caller's cwd | 工作目錄（worktree 路徑） |
+| `pane_mode` | boolean | `false` | `true`=pane_split（右側分割），`false`=tab_create（預設） |
+| `keep_alive` | boolean | `false` | `true`=保留 pane 供多輪對話，`false`=完工自動關閉 |
+| `timeout` | integer | `300000` | 單次 prompt 的超時毫秒數（最小 30000） |
+
+### 使用原則
+
+1. **預設值就是正確行爲**：`pane_mode=false`（tab 模式）、`keep_alive=false`（自動關閉）——只有在使用者明確要求時才改
+2. **profile 的 `tools` 值填入 `herdr_spawn.tools`**：先 `herdr_profile read` 讀取 profile，用其 `tools` 值
+3. **model 從 `PI_MODEL_DEFAULT` 讀取**：`herdr_spawn` 會自動讀取，不需手動傳；需 fallback 時才手動傳 `model` 參數
+4. **thinking level 先問 `herdr_thinking`**：呼叫 `herdr_thinking advise` 取得建議的 `--thinking` 值
+5. **pi packages 先 `herdr_package list` 再傳 `packages`**：`herdr_spawn` 會自動解析並加 `-e` 參數
+6. **多輪對話用它，不是用 `keep_alive=false` 再重複 spawn**：設 `keep_alive=true`，走 `herdr_agent prompt/read` 多輪
 
 ## Git repo 並行開發：worktree 工作流
 
@@ -158,10 +208,16 @@ git worktree add <repo>/.herdr-wt/<agent-name> -b <agent-name> main
 ### 分派：pane 開在 worktree 內
 
 ```json
-// 預設 tab 模式：開新 tab，cwd 指向 worktree
-{ "action": "tab_create", "workspace": "<ws>", "label": "<agent-name>", "cwd": "<repo>/.herdr-wt/<agent-name>", "focus": false }
-// 使用者指定 pane 模式時才改為：{ "action": "pane_split", "cwd": "<repo>/.herdr-wt/<agent-name>", "focus": false }
+// 用 herdr_spawn 指定 cwd 指向 worktree，herdr_spawn 自動處理 topology 和生命週期
+{
+  "name": "<agent-name>",
+  "prompt": "<任務>",
+  "cwd": "<repo>/.herdr-wt/<agent-name>",
+  "keep_alive": false
+}
 ```
+
+> 使用者明確指定 pane 模式時，才加 `"pane_mode": true`。
 
 subagent 的 cwd 就是它的 worktree，pane 與 branch 一一對應。
 
@@ -209,7 +265,7 @@ subagent 啟動時用的 model 由 env 變數決定（**只影響 subagent，不
 | `PI_MODEL_FALLBACK_HIGH` | 品質優先 / 需長上下文的 model（通常單一併發） |
 | `PI_MODEL_FALLBACK_BULK` | 大量並行、品質要求普通的 model（通常多併發） |
 
-**啟動任何 subagent 前，一律先讀取變數**：
+**啟動任何 subagent 前，一律先讀取變數**。`herdr_spawn` 會自動讀取 `PI_MODEL_DEFAULT`，不需手動傳 `model` 參數。
 
 ```bash
 echo $PI_MODEL_DEFAULT $PI_MODEL_FALLBACK_HIGH $PI_MODEL_FALLBACK_BULK
@@ -229,6 +285,7 @@ echo $PI_MODEL_DEFAULT $PI_MODEL_FALLBACK_HIGH $PI_MODEL_FALLBACK_BULK
 - 用 BULK 前先確認任務不超過該 model 的 context / 輸出上限（依環境實測）
 - shell 啟動設定檔只對**新開的 pane** 生效；已開的 pane 要 `source ~/.bashrc`（或對應檔案）或重開
 - **選好 model 之後，再依任務難度設定 `--thinking`**（見下一節「Subagent thinking level 選擇」）——thinking 的「有效 level」因 model 而異，順序不能反
+- **`herdr_spawn` 自動讀取 `PI_MODEL_DEFAULT`**：預設不需手動傳 `model` 參數；需要 fallback 時才手動傳入
 
 ## Subagent thinking level 選擇（依任務難度 × model 特性）
 
@@ -281,11 +338,18 @@ pi --no-tools --model <model> --thinking off -p "<簡單問題>"
 ### 範例
 
 ```json
+// 使用 herdr_spawn：herdr_spawn 會自動讀取 PI_MODEL_DEFAULT 並設定 --model
 {
-  "action": "start", "name": "sb-review", "kind": "pi", "pane": "<p1>",
+  "name": "sb-review",
+  "prompt": "Review the code diff...",
+  "tools": "read,bash",
+  "thinking": "high"
+}
+
+// 使用 herdr_agent start（特殊情況）：
+{ "action": "start", "name": "sb-review", "kind": "pi", "pane": "<p1>",
   "agentArgs": ["-t", "read,bash", "--model", "<依 PI_MODEL_* 選用>", "--thinking", "high"]
 }
-```
 
 ## Subagent profiles（agents/ 目錄）
 
@@ -305,7 +369,7 @@ changelog: |
 
 欄位說明：`name` / `description` 為 pi subagent 格式必填；`tools` 為啟動時組裝 `-t` 工具白名單用（pi packages **不由 profile 寫死**——由 main agent 依當前任務動態決定，見「Subagent 工具配置（pi packages）」）；`model` **可省略**——若填僅為提示，實際值一律由 orchestrator 依 `PI_MODEL_*` env 選用（見「Subagent model 選擇與 fallback」），**不得硬編碼具體模型**；`version`（semver）與 `changelog`（多行，**最近一版在最上面**，說明改版原因）為本 repo 的改版追蹤慣例，每次調整 profile 必須更新。
 
-**用法**：orchestrator 讀取 profile → 用 frontmatter 的 `tools` 組裝 `herdr_agent start` 的 `agentArgs`（`-t`）；`--model` 一律依 `PI_MODEL_*` env 選用（見「Subagent model 選擇與 fallback」）；profile body 的 system prompt 內容透過 `prompt` 傳給 subagent（agentArgs 無法安全編碼多行字串）→ 任務完成後把經驗寫回 profile（改版迭代，記得更新 `version` 與 `changelog`）。
+**用法**：orchestrator 讀取 profile → 用 frontmatter 的 `tools` 填入 `herdr_spawn` 的 `tools` 參數；`--model` 由 `herdr_spawn` 自動從 `PI_MODEL_DEFAULT` 讀取；profile body 的 system prompt 內容透過 `herdr_spawn` 的 `prompt` 參數傳給 subagent → 任務完成後把經驗寫回 profile（改版迭代，記得更新 `version` 與 `changelog`）。
 
 ### 選擇與建立（用 or 建）
 
@@ -317,8 +381,8 @@ changelog: |
    - **職責吻合**：任務型別與 profile 定義的職責一致（黑箱研究、code review、文獻檢索…）
    - **工具足夠**：profile 的 `tools` 涵蓋任務所需工具；任務需要但 profile 沒有的工具 → 不適用
    - 只要有任一明顯落差 → **不算適用**
-3. **有完全適用** → `herdr_profile read <name>` 讀取內容，用 frontmatter `tools` 組裝 `herdr_agent start` 的 `agentArgs`、body 作為 `prompt`
-4. **沒有完全適用** → `herdr_profile create` **依需求撰寫新 profile** 寫入 `agents/`（name 小寫短 id；description 精確描述適用範圍；tools 逗號分隔工具白名單；body 為 system prompt，含職責與 output contract），**然後用新 profile spawn subagent**
+3. **有完全適用** → `herdr_profile read <name>` 讀取內容，用 frontmatter `tools` 填入 `herdr_spawn` 的 `tools` 參數、body 作為 `prompt`
+4. **沒有完全適用** → `herdr_profile create` **依需求撰寫新 profile** 寫入 `agents/`（name 小寫短 id；description 精確描述適用範圍；tools 逗號分隔工具白名單；body 為 system prompt，含職責與 output contract），**然後用 `herdr_spawn` 搭配新 profile spawn subagent**
 5. 新 profile 建立後即成為資產：**下次同型別任務直接適用**，不需要重建
 
 > 不要「將就」使用相近但不適用的 profile（例如用 R 專家 profile 去接 C# 任務）——以「任務與 profile 描述完全一致」為適用標準。
@@ -336,12 +400,21 @@ changelog: |
   1. `herdr_package list` 查看 `PI_PACKAGES_DIR` 當下有哪些 packages（name / description / keywords）
   2. 依**當前任務**選擇需要的 package(s)（不寫入 profile frontmatter）
   3. `herdr_package resolve` 把名稱解析為 `-e <dir>` 路徑
-  4. `herdr_agent start` 的 `agentArgs` 放入 `-e <dir>`（每個 package 一組 `-e`；單行、無特殊字元，符合「量身訂做參數」的 agentArgs 安全限制）
+  4. 將 package 名稱傳給 `herdr_spawn` 的 `packages` 參數（`herdr_spawn` 會自動解析並加 `-e` 參數）；若需手動 `herdr_agent start`，`agentArgs` 放入 `-e <dir>`（每個 package 一組 `-e`；單行、無特殊字元，符合「量身訂做參數」的 agentArgs 安全限制）
   5. resolve 回報 missing 的 package 直接跳過，spawn 照常進行
 - **`PI_PACKAGES_DIR` 未設定**（或為空）：不掛載任何 package，照常 spawn——profile 的 `tools` 白名單（`-t`）仍適用
 
 ```json
 // spawn 前動態掛載（$PI_PACKAGES_DIR 已設定，任務需要某個 skill package）
+// 1. herdr_package list → 找到 book-to-skill
+// 2. 將 package 名稱傳給 herdr_spawn 的 packages 參數
+{
+  "name": "sb1",
+  "prompt": "...",
+  "packages": ["book-to-skill"]
+}
+
+// 手動方式（需特殊控制時）：
 // 1. herdr_package list → 找到 book-to-skill
 // 2. herdr_package resolve ["book-to-skill"] → -e <resolve 回傳的真實路徑>
 {
