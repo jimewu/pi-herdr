@@ -1,6 +1,6 @@
 ---
 name: plan-as-skill
-description: "Plan-as-Skill 是「如何建立與執行 plan-skill」的 meta-skill。它定義了 plan-skill 的結構、progressive disclosure 原則、以及執行時的行前檢查、new commits 驗證、agent 拓樸設計、雙層驗收 endpoint 等規範。當你載入一個具體的 plan-skill（如 r9700-qwen3.8-sglang）時，那個 skill 才是要執行的計畫；本 skill 是你的參考手冊。"
+description: "Plan-as-Skill 是「如何建立與執行 plan-skill」的 meta-skill。它定義了 plan-skill 的結構、progressive disclosure 原則、以及執行時的行前檢查、new commits 驗證、agent 拓樸設計、雙層驗收 endpoint 等規範。當你載入一個具體的 plan-skill 時，那個 skill 才是要執行的計畫；本 skill 是你的參考手冊。"
 metadata:
   version: 1.3.0
   mode: reference
@@ -327,7 +327,7 @@ Plan-as-Skill 是 herdr-with-pi 的**進階執行模式**：
 | **執行層** | `herdr_layout` / `herdr_pane` / `herdr_agent` | 開 pane、啟動 agent、派任務 |
 | **策略層** | `herdr-with-pi` skill | 何時用 subagent、怎麼分工、worktree 規則 |
 | **計畫層** | `plan-as-skill` (本 skill) | 如何把計畫變成 skill、如何執行 plan-skill |
-| **執行層** | 具體的 plan-skill（如 `r9700-qwen3.8-sglang`） | 可執行的計畫本身 |
+| **執行層** | 具體的 plan-skill | 可執行的計畫本身 |
 
 ---
 
@@ -361,6 +361,4 @@ herdr_package resolve ["<package-name>"]
 
 | Plan-Skill | 位置 | 說明 | 規劃日期 |
 |-----------|------|------|----------|
-| [r9700-qwen3.8-sglang](../../r9700-qwen3.8-sglang/SKILL.md) | `skills/r9700-qwen3.8-sglang/` | 在 R9700 上使用 sglang 跑 Qwen3.8-27B AWQ-INT4 | 2026-08-20 |
-| [r9700-qwen38-sglang-phase4](../../r9700-qwen38-sglang-phase4/SKILL.md) | `skills/r9700-qwen38-sglang-phase4/` | WMMA v1 kernel 正確性除錯 → 語義模型建立 → 精確回修 → SGLang 整合 | 2026-08-24 |
-| [r9700-qwen38-sglang-phase5](../../r9700-qwen38-sglang-phase5/SKILL.md) | `skills/r9700-qwen38-sglang-phase5/` | 端到端效能優化：CUDA Graph → context 擴展 → GDN backend | 2026-08-25 |
+| _(尚無現有 plan-skill)_ | | | |

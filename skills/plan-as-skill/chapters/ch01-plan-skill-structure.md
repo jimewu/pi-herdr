@@ -4,7 +4,7 @@
 
 Plan-skill 是一個**可執行的計畫**，以 Agent-Skills 結構封裝。它與一般 skill 的差別：
 
-| 面向 | 一般 skill（如 book-to-skill） | plan-skill（如 r9700-qwen3.8-sglang） |
+| 面向 | 一般 skill（如 book-to-skill） | plan-skill |
 |------|-------------------------------|--------------------------------------|
 | 目的 | 提供知識參考 | 提供執行指引 |
 | 載入後 | agent 查詢知識用 | agent 執行計畫中的步驟 |

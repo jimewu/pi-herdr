@@ -122,7 +122,7 @@ herdr_package resolve ["<package-name>"]
 
 - 小寫、短橫線分隔
 - 一眼能看出計畫內容
-- 如 `r9700-qwen3.8-sglang`、`batch-book-to-skill`
+- 如 `batch-book-to-skill`、`my-plan-name`
 
 ### 參考模板
 

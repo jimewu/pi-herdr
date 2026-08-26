@@ -50,7 +50,7 @@ changelog: |
 
 ## 輸出規範
 
-- 所有 kernel 檔案放在 `/srv/git/pi/pi-herdr/skills/r9700-qwen38-sglang-phase2/csrc/` 下
+- 所有 kernel 檔案放在 `./csrc/` 下（相對於 plan-skill 根目錄）
 - 每次編譯測試通過後才繼續下一步
 - 如果遇到編譯錯誤，分析錯誤並修正後重試
 - 記錄所有測試結果到 `notes/` 目錄
