@@ -91,11 +91,13 @@ describe("pi-herdr", () => {
 			"herdr_profile",
 			"herdr_package",
 			"herdr_thinking",
+			"herdr_spawn",
 		]);
 		expect(tools.get("herdr_layout").description).toContain("Workspaces contain tabs; tabs contain panes");
 		expect(tools.get("herdr_pane").description).toContain("ordinary processes");
 		expect(tools.get("herdr_agent").description).toContain("existing Herdr pane");
 		expect(tools.get("herdr_profile").description).toContain("exactly fit");
+		expect(tools.get("herdr_spawn").description).toContain("single high-level call");
 	});
 
 	test("splits the caller pane from geometry while preserving cwd and focus", async () => {
@@ -681,6 +683,244 @@ describe("herdr_thinking (thinking-level advisor)", () => {
 			if (prev === undefined) delete process.env.PI_THINKING_CLASSES;
 			else process.env.PI_THINKING_CLASSES = prev;
 			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("herdr_spawn (high-level subagent delegation)", () => {
+	beforeEach(() => {
+		process.env.HERDR_ENV = "1";
+		process.env.HERDR_PANE_ID = currentPane.pane_id;
+		process.env.PI_MODEL_DEFAULT = "some-provider/some-model";
+	});
+
+	afterEach(() => {
+		delete process.env.HERDR_ENV;
+		delete process.env.HERDR_PANE_ID;
+		delete process.env.PI_MODEL_DEFAULT;
+	});
+
+	function makeHandler() {
+		const calls: string[][] = [];
+		let paneCounter = 1;
+		let startedAgent: any = null;
+		const handler = (args: string[]) => {
+			calls.push(args);
+			// pane current
+			if (args[0] === "pane" && args[1] === "current") {
+				return { type: "pane_current", pane: { ...currentPane } };
+			}
+			// tab create
+			if (args[0] === "tab" && args[1] === "create") {
+				const newPaneId = `w1:p${++paneCounter}`;
+				return {
+					type: "tab_created",
+					tab: { tab_id: `w1:t${paneCounter}`, label: args[args.indexOf("--label") + 1] || "" },
+					root_pane: { pane_id: newPaneId },
+				};
+			}
+			// pane split
+			if (args[0] === "pane" && args[1] === "split") {
+				const newPaneId = `w1:p${++paneCounter}`;
+				return { type: "pane_info", pane: { pane_id: newPaneId } };
+			}
+			// agent start
+			if (args[0] === "agent" && args[1] === "start") {
+				startedAgent = {
+					name: args[2],
+					agent: "pi",
+					agent_status: "idle",
+					pane_id: args[args.indexOf("--pane") + 1],
+				};
+				return { type: "agent_started", agent: startedAgent };
+			}
+			// agent prompt
+			if (args[0] === "agent" && args[1] === "prompt") {
+				return { type: "agent_prompted", agent: { ...startedAgent, agent_status: "done" } };
+			}
+			// agent read
+			if (args[0] === "agent" && args[1] === "read") {
+				return "task output\ncompleted successfully";
+			}
+			// pane close
+			if (args[0] === "pane" && args[1] === "close") {
+				return { type: "ok" };
+			}
+			throw new Error(`unexpected command: ${args.join(" ")}`);
+		};
+		return { handler, calls, getStartedAgent: () => startedAgent };
+	}
+
+	test("spawns a subagent in tab mode (default) with auto-close", async () => {
+		const { handler, calls } = makeHandler();
+		const tools = registerTools(handler);
+
+		const result = await tools.get("herdr_spawn").execute(
+			"t1",
+			{
+				name: "my-worker",
+				prompt: "Do the task",
+				tools: "read,bash",
+			},
+			undefined,
+			() => {},
+			{},
+		);
+
+		// Should create a tab, start agent, prompt, read, close
+		expect(calls.some((c) => c[0] === "tab" && c[1] === "create")).toBe(true);
+		expect(calls.some((c) => c[0] === "agent" && c[1] === "start")).toBe(true);
+		expect(calls.some((c) => c[0] === "agent" && c[1] === "prompt")).toBe(true);
+		expect(calls.some((c) => c[0] === "agent" && c[1] === "read")).toBe(true);
+		expect(calls.some((c) => c[0] === "pane" && c[1] === "close")).toBe(true);
+
+		// Should use default model from env
+		const startCall = calls.find((c) => c[0] === "agent" && c[1] === "start")!;
+		expect(startCall.join(" ")).toContain("--model");
+		expect(startCall.join(" ")).toContain("some-provider/some-model");
+
+		// Should include the output
+		expect(result.content[0].text).toContain("task output");
+		expect(result.details.closeResult).toBe("closed");
+	});
+
+	test("spawns in pane mode when pane_mode=true", async () => {
+		const { handler, calls } = makeHandler();
+		const tools = registerTools(handler);
+
+		await tools.get("herdr_spawn").execute(
+			"t1",
+			{
+				name: "pane-worker",
+				prompt: "Do the task",
+				pane_mode: true,
+			},
+			undefined,
+			() => {},
+			{},
+		);
+
+		// Should use pane_split, not tab_create
+		expect(calls.some((c) => c[0] === "pane" && c[1] === "split")).toBe(true);
+		expect(calls.some((c) => c[0] === "tab" && c[1] === "create")).toBe(false);
+	});
+
+	test("keeps agent alive when keep_alive=true", async () => {
+		const { handler, calls } = makeHandler();
+		const tools = registerTools(handler);
+
+		const result = await tools.get("herdr_spawn").execute(
+			"t1",
+			{
+				name: "keep-worker",
+				prompt: "Do the task",
+				keep_alive: true,
+			},
+			undefined,
+			() => {},
+			{},
+		);
+
+		// Should NOT close the pane
+		expect(calls.some((c) => c[0] === "pane" && c[1] === "close")).toBe(false);
+		expect(result.details.closeResult).toBe("kept alive");
+	});
+
+	test("passes tools, model, thinking, and packages agentArgs to start", async () => {
+		const { handler, calls } = makeHandler();
+		const tools = registerTools(handler);
+
+		await tools.get("herdr_spawn").execute(
+			"t1",
+			{
+				name: "config-worker",
+				prompt: "Do the task",
+				tools: "read,bash,edit",
+				model: "custom-provider/custom-model",
+				thinking: "high",
+			},
+			undefined,
+			() => {},
+			{},
+		);
+
+		const startCall = calls.find((c) => c[0] === "agent" && c[1] === "start")!;
+		const argsStr = startCall.join(" ");
+		expect(argsStr).toContain("-t read,bash,edit");
+		expect(argsStr).toContain("--model custom-provider/custom-model");
+		expect(argsStr).toContain("--thinking high");
+	});
+
+	test("rejects duplicate agent names", async () => {
+		const { handler } = makeHandler();
+		const tools = registerTools(handler);
+
+		// First spawn succeeds
+		await tools.get("herdr_spawn").execute(
+			"t1",
+			{ name: "dup-worker", prompt: "first" },
+			undefined,
+			() => {},
+			{},
+		);
+
+		// Second spawn with same name fails
+		await expect(
+			tools.get("herdr_spawn").execute(
+				"t2",
+				{ name: "dup-worker", prompt: "second" },
+				undefined,
+				() => {},
+				{},
+			),
+		).rejects.toThrow(/already exists/);
+	});
+
+	test("throws when PI_MODEL_DEFAULT is not set and no model param", async () => {
+		delete process.env.PI_MODEL_DEFAULT;
+		const { handler } = makeHandler();
+		const tools = registerTools(handler);
+
+		await expect(
+			tools.get("herdr_spawn").execute(
+				"t1",
+				{ name: "no-model", prompt: "test" },
+				undefined,
+				() => {},
+				{},
+			),
+		).rejects.toThrow(/PI_MODEL_DEFAULT/);
+	});
+
+	test("resolves pi packages when PI_PACKAGES_DIR is set", async () => {
+		const packagesDir = mkdtempSync(join(tmpdir(), "herdr-spawn-pkgs-"));
+		try {
+			const pkgDir = join(packagesDir, "my-package");
+			mkdirSync(pkgDir, { recursive: true });
+			writeFileSync(join(pkgDir, "package.json"), JSON.stringify({ name: "my-package", description: "Test package" }));
+			process.env.PI_PACKAGES_DIR = packagesDir;
+
+			const { handler, calls } = makeHandler();
+			const tools = registerTools(handler);
+
+			await tools.get("herdr_spawn").execute(
+				"t1",
+				{
+					name: "pkg-worker",
+					prompt: "Do the task",
+					packages: ["my-package"],
+				},
+				undefined,
+				() => {},
+				{},
+			);
+
+			const startCall = calls.find((c) => c[0] === "agent" && c[1] === "start")!;
+			expect(startCall.join(" ")).toContain("-e");
+			expect(startCall.join(" ")).toContain(pkgDir);
+		} finally {
+			rmSync(packagesDir, { recursive: true, force: true });
+			delete process.env.PI_PACKAGES_DIR;
 		}
 	});
 });

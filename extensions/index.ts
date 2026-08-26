@@ -27,6 +27,9 @@ const repoRoot = dirname(extensionDir);
 const skillPath = join(repoRoot, "skills", "herdr-with-pi", "SKILL.md");
 const profileManagerDir = join(repoRoot, "agents");
 
+/** Track spawned agents for lifecycle management. Keyed by agent name. */
+const spawnedAgents = new Map<string, { name: string; paneId: string; createdAt: number }>();
+
 type AgentStatus = "idle" | "working" | "blocked" | "done" | "unknown";
 type ReadSource = "visible" | "recent" | "recent-unwrapped" | "detection";
 type WaitOutputSource = Exclude<ReadSource, "detection">;
@@ -1454,6 +1457,244 @@ export default function (pi: ExtensionAPI) {
 		},
 		renderCall(args, theme, context) {
 			return renderToolCall("herdr_thinking", args, theme, context);
+		},
+		renderResult(result, options, theme) {
+			return renderToolResult(result, options, theme);
+		},
+	});
+
+	pi.registerTool({
+		name: "herdr_spawn",
+		label: "Herdr Spawn",
+		description:
+			"Spawn a subagent with a single high-level call. Creates topology (tab_create by default, or pane_split when pane_mode=true), starts the agent, prompts it, waits for completion, and returns the output. The agent pane is auto-closed on completion unless keep_alive=true. For multi-step dialogue, set keep_alive=true and use herdr_agent prompt/read for subsequent rounds; herdr_agent close when done. This is the preferred way to delegate — one call replaces the manual layout → start → prompt → wait → read → close sequence.",
+		promptSnippet: "Spawn a coding subagent and get its output — one call replaces layout → start → prompt → wait → read → close",
+		promptGuidelines: [
+			"Use herdr_spawn as the default way to delegate work to subagents. It handles topology (tab_create by default), startup, prompting, waiting, and auto-close. Only fall back to manual herdr_layout/herdr_agent/herdr_pane when you need fine-grained control.",
+			"For multi-step dialogue with the subagent (more than one prompt round), set keep_alive=true; after the initial prompt returns, use herdr_agent prompt/read for subsequent rounds, then herdr_agent close (or herdr_pane close) when finished.",
+			"Do not close a spawned agent's pane manually if keep_alive is false — the tool handles it. Only use keep_alive when you explicitly need multiple rounds.",
+		],
+		parameters: Type.Object({
+			name: Type.String({
+				pattern: "^[a-z][a-z0-9_-]{0,31}$",
+				description: "Unique agent name (lowercase, alphanumeric + hyphens/underscores)",
+			}),
+			kind: Type.Optional(
+				AgentKindEnum,
+				{ description: "Agent kind. Defaults to pi." },
+			),
+			prompt: Type.String({ description: "Initial prompt to send to the subagent (the task description, rules, and output contract)" }),
+			cwd: Type.Optional(Type.String({ description: "Working directory for the subagent. Defaults to the caller's cwd." })),
+			tools: Type.Optional(Type.String({ description: "Comma-separated built-in tool allow-list, e.g. 'read,bash'. Defaults to 'read,bash,edit,write'." })),
+			packages: Type.Optional(Type.Array(Type.String(), { description: "Pi package names to resolve and load via -e. Use herdr_package list first to see available packages." })),
+			model: Type.Optional(Type.String({ description: "Full provider/model pattern. Defaults to PI_MODEL_DEFAULT env. See herdr-with-pi skill for fallback rules." })),
+			thinking: Type.Optional(
+				StringEnum(["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const, {
+					description: "Thinking level. Use herdr_thinking action=advise to determine the right level for the task.",
+				}),
+			),
+			pane_mode: Type.Optional(
+				Type.Boolean({
+					description: "Use pane_split (right) instead of tab_create for layout. Defaults to false (tab mode). Only use when the user explicitly requests pane mode.",
+				}),
+			),
+			keep_alive: Type.Optional(
+				Type.Boolean({
+					description: "Keep the subagent pane alive after the initial prompt completes. Defaults to false (auto-close). Set to true when you need multi-step dialogue.",
+				}),
+			),
+			timeout: Type.Optional(
+				Type.Integer({
+					minimum: 30000,
+					description: "Prompt timeout in milliseconds. Defaults to 300000 (5 minutes).",
+				}),
+			),
+		}),
+		async execute(_toolCallId, params, signal, onUpdate, _ctx) {
+			const name = params.name;
+			const kind = params.kind || "pi";
+			const prompt = params.prompt;
+			const tools = params.tools || "read,bash,edit,write";
+			const paneMode = params.pane_mode === true;
+			const keepAlive = params.keep_alive === true;
+			const timeout = params.timeout || 300000;
+
+			if (spawnedAgents.has(name)) {
+				throw new Error(`Agent ${name} already exists. Use a different name or close it first.`);
+			}
+
+			// 1. Determine model (env default, then param override)
+			const modelFromEnv = process.env.PI_MODEL_DEFAULT || "";
+			const model = params.model || modelFromEnv;
+			if (!model) {
+				throw new Error(
+					"No model specified and PI_MODEL_DEFAULT is not set. Set PI_MODEL_DEFAULT in your shell startup file (e.g. ~/.bashrc) or pass model explicitly.",
+				);
+			}
+
+			// 2. Resolve pi packages
+			const packagesDir = process.env.PI_PACKAGES_DIR;
+			const resolvedPackageArgs: string[] = [];
+			if (params.packages?.length) {
+				if (!packagesDir) {
+					onUpdate?.({
+						content: [{ type: "text", text: "PI_PACKAGES_DIR not set; skipping package provisioning." }],
+						details: { warning: "PI_PACKAGES_DIR not set" },
+					});
+				} else {
+					const scanner = createPackageScanner(packagesDir);
+					const { found, missing } = scanner.find(params.packages);
+					if (missing.length) {
+						onUpdate?.({
+							content: [{ type: "text", text: `Packages not found: ${missing.join(", ")}` }],
+							details: { warning: "missing packages", missing },
+						});
+					}
+					for (const pkg of found) {
+						resolvedPackageArgs.push("-e", pkg.path);
+					}
+				}
+			}
+
+			// 3. Build agentArgs
+			const agentArgs: string[] = ["-t", tools, "--model", model];
+			if (params.thinking) {
+				agentArgs.push("--thinking", params.thinking);
+			}
+			agentArgs.push(...resolvedPackageArgs);
+
+			// 4. Create topology
+			onUpdate?.({
+				content: [{ type: "text", text: `Creating ${paneMode ? "pane" : "tab"} for ${name}...` }],
+				details: { action: "creating_layout", name },
+			});
+
+			let paneId: string;
+			if (paneMode) {
+				// pane mode: split right from caller
+				const current = await getCurrentPane(signal);
+				const layoutResponse = await execHerdrJson<{
+					result: { pane: PaneInfo };
+				}>(
+					[
+						"pane",
+						"split",
+						current.pane_id,
+						"--direction",
+						"right",
+						"--cwd",
+						params.cwd || current.foreground_cwd || current.cwd || process.cwd(),
+						"--no-focus",
+					],
+					signal,
+				);
+				paneId = layoutResponse.result.pane.pane_id;
+			} else {
+				// tab mode: create a new tab
+				const current = await getCurrentPane(signal);
+				const tabResponse = await execHerdrJson<{
+					result: { tab: TabInfo; root_pane: PaneInfo };
+				}>(
+					[
+						"tab",
+						"create",
+						"--workspace",
+						current.workspace_id,
+						"--cwd",
+						params.cwd || current.foreground_cwd || current.cwd || process.cwd(),
+						"--label",
+						name,
+						"--no-focus",
+					],
+					signal,
+				);
+				paneId = tabResponse.result.root_pane.pane_id;
+			}
+
+			// 5. Start the agent
+			onUpdate?.({
+				content: [{ type: "text", text: `Starting ${kind} as ${name} in pane ${paneId}...` }],
+				details: { action: "starting", name, paneId },
+			});
+
+			await execHerdrJson(
+				["agent", "start", name, "--kind", kind, "--pane", paneId, "--", ...agentArgs],
+				signal,
+			);
+
+			// Track the spawned agent
+			spawnedAgents.set(name, { name, paneId, createdAt: Date.now() });
+
+			// 6. Prompt and wait for completion
+			onUpdate?.({
+				content: [{ type: "text", text: `Prompting ${name}...` }],
+				details: { action: "prompting", name },
+			});
+
+			// Use prompt with wait; capture the settled agent state
+			const promptResponse = await execHerdrJson<{ result: { agent: AgentInfo } }>(
+				["agent", "prompt", name, prompt, "--wait", "--timeout", String(timeout)],
+				signal,
+			);
+
+			// 7. Read the output
+			onUpdate?.({
+				content: [{ type: "text", text: `Reading output from ${name}...` }],
+				details: { action: "reading", name },
+			});
+
+			const readOutput = await execHerdrText(
+				["agent", "read", name, "--source", "recent-unwrapped"],
+				signal,
+			);
+
+			// 8. Close unless keep_alive
+			let closeResult: string | null = null;
+			if (!keepAlive) {
+				try {
+					await execHerdrJson(["pane", "close", paneId], signal);
+					closeResult = "closed";
+					// Keep the name in the map for the session lifetime
+					// so the same name cannot be reused (avoids confusion)
+				} catch (e) {
+					closeResult = `close failed: ${(e as Error).message}`;
+					// Non-fatal: output is still available
+				}
+			} else {
+				closeResult = "kept alive";
+			}
+
+			const formatted = formatOutput(readOutput);
+			return {
+				content: [
+					{
+						type: "text",
+						text: [
+							`${name} (${kind}) — ${closeResult}`,
+							`model: ${model}${params.thinking ? `, thinking: ${params.thinking}` : ""}`,
+							`pane: ${paneId} (${paneMode ? "pane" : "tab"} mode)`,
+							`---`,
+							formatted,
+						].join("\n"),
+					},
+				],
+				details: {
+					action: "spawn",
+					name,
+					kind,
+					paneId,
+					paneMode,
+					keepAlive,
+					closeResult,
+					model,
+					thinking: params.thinking,
+					agent: promptResponse.result.agent,
+					readOutput: formatted,
+				},
+			};
+		},
+		renderCall(args, theme, context) {
+			return renderToolCall("herdr_spawn", args, theme, context);
 		},
 		renderResult(result, options, theme) {
 			return renderToolResult(result, options, theme);
