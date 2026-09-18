@@ -466,3 +466,19 @@ changelog: |
 | 長文研讀只要結論 | 分派黑箱研究，要求結論 + output contract |
 | 大 token 消耗工作 | 分派隔離，保護 orchestrator context |
 | 小任務 / 依賴鏈 / 需一致風格 | 自己做 |
+
+## 審查 / 產物檢查型 subagent（文件、輸出物、黑箱驗收）
+
+當任務是「檢查文件/產物並回報問題」時，除了一般分派原則，注意：
+
+**1. Prompt 內嵌「工具顯示限制」（避免誤報）**
+Subagent 檢查 docx/PDF/ODS 等二進位產物時，常用 pandoc/unzip/grep 這些「顯示受限」的工具，容易把工具限制當成內容缺失而下錯結論。任務說明應預先告知已知 gotcha，例如：
+- pandoc 讀 docx：`\@ref`/TOC/表格編號等 Word fields 未計算時顯示空白 → 空白是正常，不是失敗
+- `block_pour_docx` 嵌入的 altChunk 內容 pandoc 看不到 → 用 unzip 確認 `word/cer_*.docx` 存在，或視為「無法以此工具驗證」
+- grid/pipe table 的 cell 內容在 pandoc plain 會斷行 → 跨行比對時小心
+- 要求：對「工具顯示受限而無法確認的項」，一律標「存疑」並說明理由，不要下「缺失/錯誤」結論
+
+本次實例：審查型 agent 誤報 3 項（field 空白當渲染失敗、altChunk 內圖面當「不存在」、表格跨行 B-number 對照錯亂），主 agent 逐一驗證後全部推翻，浪費大量 token。
+
+**2. 大型審查先預篩、後分派**
+全文件/大目錄的「機械式檢查」（殘留字串、跨檔一致性的數字、grep 可完成的檢查）先用主 agent 自己 grep 預篩，把「需要推理的項」（是否符合某標準、某段語意是否支持某宣稱、兩文件敘述是否矛盾）才丟給 subagent；或把審查拆成多個聚焦任務（數字一致性 / 引用 / verbatim / 格式各一）。單一 subagent 跑全部會燒掉大量 token（實例：一台文件飛行檢查用了 ~4M+ tokens 尚未完成）。
