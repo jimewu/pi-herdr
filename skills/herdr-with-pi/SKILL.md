@@ -39,6 +39,28 @@ description: "以 Herdr 為基礎的多 agent 協作策略層（herdr-with-pi）
 - **需一致觀點**：一份文件的各章節要風格統一，難以乾淨切分
 - **精細決策**：重要判斷需 orchestrator 親自把關
 
+## 非交互批量任務：headless `pi --print` vs herdr
+
+上面四個「建議分派」條件滿足**但不需要對話**的子任務——純機械式「進 prompt → 出檔 → 結束」
+（如 chunk 翻譯、格式轉換、批量抽取、批量驗證）——**不用 herdr pane，用 headless**：
+
+```bash
+pi --print --model <model> --thinking <level> -t read,write -p "<自包含任務+output contract>" \
+  > job.out 2> job.err   # rc + 輸出檔就是全部訊號
+```
+
+理由（實測 13 個 chunk 的批量翻譯，0 次 lifecycle 問題）：
+
+- herdr 的 lifecycle 狀態偵測（idle/blocked/done）是為**要對話**的 agent 設計的；純批處理
+  佔用 pane + 狀態解析是純粹的額外成本，background 失敗處理也更簡單（rc + status 檔）
+- headless 沒有 TUI/alternate-screen 問題，輸出直接進檔，orchestrator 讀檔驗證即可
+- **多 chunk 編排**：同檔串行（工具鎖）/跨檔並行，用 `nohup` + 小 chain 腳本（依序跑
+  `pi --print`、rc!=0 即 ABORT、每步寫 status 檔），orchestrator 定期 `tail` status
+
+**邊界判斷**：需要多輪追問/探索失敗後改策略 → herdr（`herdr_spawn`，`keep_alive` 視情況）；
+一次 prompt 就結束、輸出是檔案 → headless。兩者不互斥：同一任務可混合（研究用 herdr，
+批量套用用 headless）。
+
 ## 版面配置慣例（layout）
 
 **預設採用 tab 模式**：每個 agent（main + 每個 subagent）都在**同一個 workspace 下各自的 tab**。只有使用者**明確指定**要 pane 模式時，才改用「左主右子」分割。**agent 不自行偵測畫面大小**——選哪種模式由使用者決定。
@@ -465,6 +487,7 @@ changelog: |
 | try & error（關鍵字/參數） | 分派多路線探索，各給不同策略 |
 | 長文研讀只要結論 | 分派黑箱研究，要求結論 + output contract |
 | 大 token 消耗工作 | 分派隔離，保護 orchestrator context |
+| **非交互批量（進 prompt→出檔→結束）** | **headless `pi --print`**，不佔 herdr pane（見上節） |
 | 小任務 / 依賴鏈 / 需一致風格 | 自己做 |
 
 ## 審查 / 產物檢查型 subagent（文件、輸出物、黑箱驗收）
