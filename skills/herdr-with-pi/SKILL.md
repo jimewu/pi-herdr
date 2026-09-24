@@ -485,10 +485,32 @@ changelog: |
 |---|---|
 | 多個獨立任務 | 並行分派（git repo 改檔 → worktree 工作流） |
 | try & error（關鍵字/參數） | 分派多路線探索，各給不同策略 |
-| 長文研讀只要結論 | 分派黑箱研究，要求結論 + output contract |
+| 長文研讀只要結論、**不需人工監看過程** | **`oneshot`**（最輕：無 pane、無 lifecycle 開銷、直接回傳文字結論） |
+| 長文研讀只要結論、但**使用者可能想觀摩或中途介入** | `herdr_spawn`（可觀看的 tab／pane，可 `keep_alive` 追問） |
 | 大 token 消耗工作 | 分派隔離，保護 orchestrator context |
 | **非交互批量（進 prompt→出檔→結束）** | **headless `pi --print`**，不佔 herdr pane（見上節） |
 | 小任務 / 依賴鏈 / 需一致風格 | 自己做 |
+
+### `oneshot` vs `herdr_spawn` 的邊界（兩者都是 pi agent）
+
+兩者本質相同（都是 pi agent、綁定 API model、隔離 context），差別在**有無可觀摩的終端
+與 lifecycle**：
+
+| | `oneshot` | `herdr_spawn` |
+|---|---|---|
+| 終端 pane | 無 | 有（tab 或 pane，可即時觀看） |
+| lifecycle 狀態 | 不適用（呼叫→回傳） | idle／working／blocked／done，需解析 |
+| 多輪追問 | ✗ 單次 | ✓ `keep_alive=true` + `herdr_agent prompt` |
+| 中途介入／觀察 | ✗ | ✓ 使用者可切到該 tab 看 |
+| 成本 | 最低 | 需 layout 管理與狀態解析 |
+| 適用 | 一问一答、只要結論、過程不需人看 | 需要監看、追問、或使用者可能想接手 |
+
+> **為何這條重要**：若速查表只有 `herdr_spawn` 而無 `oneshot`，agent 看到「黑箱研究只要結論」
+> 時會**繞過本 skill 的決策框架**、預設走 oneshot，等於策略層在此失靈。把三個委派選項
+> （oneshot / herdr_spawn / headless）都列進矩陣，委派決策才會**被框架引導過**。
+
+**三者不互斥**：同一任務可混合——研究用 `oneshot` 並行開幾路，需要監看的長任務用
+`herdr_spawn`，批量套用用 headless。
 
 ## 審查 / 產物檢查型 subagent（文件、輸出物、黑箱驗收）
 
@@ -503,5 +525,28 @@ Subagent 檢查 docx/PDF/ODS 等二進位產物時，常用 pandoc/unzip/grep �
 
 本次實例：審查型 agent 誤報 3 項（field 空白當渲染失敗、altChunk 內圖面當「不存在」、表格跨行 B-number 對照錯亂），主 agent 逐一驗證後全部推翻，浪費大量 token。
 
-**2. 大型審查先預篩、後分派**
+**2. 大型審查先預篩、後分派（硬性規則）**
+
 全文件/大目錄的「機械式檢查」（殘留字串、跨檔一致性的數字、grep 可完成的檢查）先用主 agent 自己 grep 預篩，把「需要推理的項」（是否符合某標準、某段語意是否支持某宣稱、兩文件敘述是否矛盾）才丟給 subagent；或把審查拆成多個聚焦任務（數字一致性 / 引用 / verbatim / 格式各一）。單一 subagent 跑全部會燒掉大量 token（實例：一台文件飛行檢查用了 ~4M+ tokens 尚未完成）。
+
+> ### ⚠ 這條不只是省 token——是**正確性**要求
+>
+> **LLM 數不準。** 實測案例：報告摘要寫「11 🟢／15 🟡／6 🔴／3 ⚪」，實際逐列清點是
+> 「9／18／5／2」——**三個數字全錯**。兩輪 LLM reviewer 都沒抓到，腳本 0.1 秒對完。
+>
+> 讓 reviewer 去數數字等於**沒查**：它會給出一個看似合理但未經清點的結論，而這個結論會被
+> 當成已驗證。因此下列項目**必須由 orchestrator 用腳本先跑完並修正，才委派 reviewer**：
+>
+> | 確定性檢查 | 工具 |
+> |---|---|
+> | 計數斷言（燈號／項數／總和） | 腳本逐列重算，與摘要對照 |
+> | 引用雙向覆蓋（每個 label 有 pattern、每個 pattern 被用到） | 腳本 |
+> | HTML 標籤平衡（用 parser，**不用 regex**） | 腳本 |
+> | TOC 與 section id 對齊 | 腳本 |
+> | 非讀者語言引文是否均有全文翻譯 | 腳本（按碼位範圍） |
+>
+> 現成工具：`skill-regulatory-report-writing/templates/verify_report.js` 與
+> `verify_report.py`（已拿實際報告驗證通過）。任何產出 HTML 報告的任務都應先跑過再委派。
+>
+> **委派時要在 prompt 告知 reviewer「確定性檢查已完成」**，避免它重複去數已算過的東西、
+> 或把腳本已修的事實當成問題回報。
