@@ -479,6 +479,46 @@ changelog: |
 - **不依賴另一個 client 的焦點 pane**：一律用 `--current`、明確 pane id、或唯一 agent 名稱
 - **ID 不猜測**：從 tools 回傳的 JSON 讀取 opaque ID（workspace/tab/pane），不要自行推斷
 
+## Herdr 底層語意（來自官方 `herdr` skill，用 `herdr_*` tools 時仍適用）
+
+`herdr_spawn` / `herdr_agent` 是官方 CLI 的包裝，下面這些行為發生在 **herdr server 層**，
+透過 tools 操作照樣會遇到。這些是官方 skill 花最多篇幅講的坑，分派 subagent 前要知道。
+
+1. **`prompt` 的「五秒 activity gate」**：從 non-working 狀態送出 prompt 後，herdr 會等最多 5 秒，
+   必須觀察到 `working` 或 `blocked` 才算真的啟動。否則回 **`agent_prompt_stalled`**。
+   無關的 `idle`／`done`／session 變更**不滿足**這個 gate。呼叫端的 timeout **包含**送出時間。
+   → 拿到 stalled 不等於沒送進去，**先 read 再決定要不要重送**。
+
+2. **timeout / stalled 不證明 prompt 沒送達**：濫重送會讓 agent 收到兩次同樣的指令。
+   一律先 `herdr_agent read` 看清楚再說。
+
+3. **`idle` vs `done` 是 per-client 視角**：兩者都代表「可接 input」，差別在「有沒有被看過」。
+   explicit focus 會標記 seen，**read 不會**。每個 TUI client 各自追蹤，所以畫面上的 Done badge
+   可能跟 CLI／另一個 client 不同步。**別把 badge 差異當成 bug 去「修」**。
+
+4. **alternate-screen 讀取限制**：全螢幕 agent（Claude Code、OpenCode 等）的 transcript 在
+   alternate screen，**不進 host scrollback**，`--lines` 開大也救不回來。
+   對 idle 且被辨識的 agent，herdr 會自動用 app 自己的 mouse-scroll 介面收集歷史；
+   但 agent 正在 working／blocked 時要求大量歷史會回 `agent_not_idle`。
+   → 讀不完整的長回覆：請 subagent **把完整回覆寫成暫存 Markdown 檔只回路徑**（但這是 fallback，
+   不要在初始 prompt 就要檔案輸出）。
+
+5. **`--trust-repository` 不是重試用的萬靈丹**：只在**使用者已確認該 repo 可信**時給，
+   它是 per-request 的 Git trust，不是拿來自訂 worktree 指令失敗的重試手段。
+
+6. **`workspace close --group`** 會連同 primary workspace 與它 linked 的 worktree workspaces 一起關。
+   **絕不要為了繞過 `workspace_group_close_required` 而隨意加上這個參數。**
+   沿用同一條鐵律：不是自己開的，就不要關（除非使用者明確要求）。
+
+7. **client／server 版本會漂移**：換 binary 不換掉已在跑的相容 server。要依賴新功能前，
+   先 `herdr status --json` 看 `.server.version` 與 `.server.capabilities`。
+   「method 不存在」**不是**你停掉或升級 server 的理由。
+   → 升級／channel／相容性判斷屬 **`herdr-config` skill**（pi-it），不在本 skill 範圍。
+
+⚠️ **本機（herdr 0.8.2）實測限制**：`herdr machine` 回 `unknown command`，
+所以官方 skill 中所有 `--machine` 遠端控制語意（ID scope、`machine status/reconnect`、
+不 fallback Local）**在本機不可用**，需升到 0.9.x 後才成立。
+
 ## 時機判斷速查
 
 | 情境 | 動作 |
