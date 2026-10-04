@@ -2,11 +2,16 @@
 name: delegation-guide
 description: "Use when an agent must delegate a sub-task to the `oneshot` sub-agent (isolated LLM session) and wants the delegation to produce correct, usable results without side‑effects. Covers prompt structure, side‑effect control, and result format."
 metadata:
-  version: 1.3.0
+  version: 1.4.0
   mode: reference
   package: pi-herdr
   sibling-skill: herdr-with-pi
   changelog: |
+    - 1.4.0: 「Document / report reviews」審查表新增兩類「語義忠實度」類別
+             （citation direction / evidence support、source fidelity / artifact
+             handling），補上由 ASR/transcript 構建的報告最常犯、而原 8 類
+             counting/coverage 表抓不到的錯誤（引用引反例、ASR 誤聽當術語、
+             範圍泛化、校正表自相矛盾）。
     - 1.3.0: 自 ~/.agents/skills/ 搬入 pi-herdr package。原位置無版控、不在 .skill-lock.json
              內，修改無歷史可回溯，且從來源重新同步時會被無聲覆蓋。搬入後：(1) 納入版控
              (2) 與 herdr-with-pi 同 package 一起以 `pi -e` 載入 (3) 可交叉引用同 repo 的
@@ -134,8 +139,10 @@ inference):
 The categories above are code-shaped. When the artefact under review is a
 **document** (regulatory report, spec, analysis, plan), the errors an author is
 least likely to self-detect are different — and they are mostly **counting and
-coverage** problems, not logic problems. Ask the reviewer to check these
-explicitly:
+coverage** problems, not logic problems. When the document is instead built
+**from an ASR/transcribed source** (meeting transcript, dictated notes), a
+second error class appears — **semantic fidelity to the source** — covered by
+the last two rows. Ask the reviewer to check these explicitly:
 
 | Category | What to check | Why the author misses it |
 |---|---|---|
@@ -147,6 +154,8 @@ explicitly:
 | **Uncertainty honesty** | Every "not established / unknown" claim states **what was searched and where**, and is not actually answered elsewhere in the same corpus | Marking something unknown is the path of least resistance; the answer is often already in a neighbouring section |
 | **Tone / neutrality** | No charged or sensational language; risks framed as addressable, not inevitable | Authors under time pressure write for effect |
 | **Cross-reference validity** | Internal pointers ("see section 8.7") land on a section that actually covers what was promised | Sections get renumbered or repurposed during restructuring; the pointers survive but the content moved |
+| **Citation direction / evidence support** *(transcribed sources)* | Every quoted passage actually *supports* the claim it accompanies (not a counter-example) and is the *right* passage (right speaker / timestamp / section) — not merely one that exists and resolves | A quote that exists and resolves passes coverage checks but can point the wrong way — the cited evidence actually undercuts, or merely resembles, the claim |
+| **Source fidelity / artifact handling** *(transcribed sources)* | No ASR/OCR artifacts (mis-heard words, homophones) used as if they were the formal term; no subtype-specific restriction generalized to the whole class; no correction/appendix table row self-contradictory (one term mapped to two readings) | ASR output looks like a plausible term so it gets reused unexamined; the author writes from the transcript without re-checking the original audio / source |
 
 **Ask for severity-tagged output and a go/no-go verdict.** An unstructured
 "looks good" is worthless; a list tagged 高／中／低 with an explicit
