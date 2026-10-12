@@ -255,6 +255,7 @@ subagent 完成後，用 `agents/code-reviewer.md` profile 開一個**唯讀 rev
 
 - 正確性、與 main 的一致性、安全性、可維護性（見 code-reviewer profile）
 - **只讀不改**：reviewer 不 commit、不改檔
+- **定量值要求 reviewer 獨立重算**：凡產出報告含數字（完成度、計數、統計），review prompt 必須要求 reviewer **從原始資料以腳本重算**，不得只讀報告數字比對——否則 review 退化成 rubber-stamp（本 repo 實踩：LLM 手數的完成度數字被 reviewer 腳本重算打回）
 
 review 結論：
 
