@@ -2,11 +2,16 @@
 name: delegation-guide
 description: "Use when an agent must delegate a sub-task to the `oneshot` sub-agent (isolated LLM session) and wants the delegation to produce correct, usable results without side‑effects. Covers prompt structure, side‑effect control, and result format."
 metadata:
-  version: 1.4.0
+  version: 1.6.0
   mode: reference
   package: pi-herdr
   sibling-skill: herdr-with-pi
   changelog: |
+    - 1.6.0: 新增「Verifying sub-agent reports」（結構/數量宣稱是假設；矛盾時
+             先查雙方看的檔案版本）；Parallel delegation 加「Long-text batch
+             processing」子節（切段並行 + 同源 glossary + 機械 normalization）。
+    - 1.5.0: 新增「reviewer inherits inputs' errors」警告（訓練案例：跨片映射錯誤被 reviewer
+               mask 為「正確」修正）；新增「兩輪 review protocol」（第二輪抓第一輪引入的新錯）。
     - 1.4.0: 「Document / report reviews」審查表新增兩類「語義忠實度」類別
              （citation direction / evidence support、source fidelity / artifact
              handling），補上由 ASR/transcript 構建的報告最常犯、而原 8 類
@@ -94,6 +99,20 @@ Multiple oneshots can run concurrently. To avoid races:
 - Set `do NOT run any git commands` in every prompt (see above).
 - Review outputs after all finish, then commit once.
 
+### Long-text batch processing (parallel chunks)
+
+When one document is too long for a single sub-agent (long transcript,
+multi-hundred-line translation/annotation task), split it into N segments and
+run N oneshots in parallel:
+
+- **One shared mandatory glossary in every segment's prompt** — the term table
+  (preferred terms, banned terms, proper nouns to keep) must be byte-identical
+  across segments, or the same concept gets N different words.
+- Each segment writes to its own output file (disjoint outputs, as above).
+- **After merge, always run a mechanical normalization pass** (banned-term
+  grep, character-set cleanup, dedupe) — do not trust the sub-agents'
+  self-reported "done, N lines"; verify counts and invariants mechanically.
+
 ## Independent review (verify your own work)
 
 Use oneshot for the final quality check. Ask it to read your output files and
@@ -107,6 +126,41 @@ pair of "eyes" catches what you overlook.
 > review categories, and the output contract. **Prefer a profile over an ad-hoc
 > prompt**, and treat the profile as the single source of truth rather than
 > keeping a second copy of its checklist in your own skill.
+
+> **CRITICAL — reviewer inherits your inputs' errors.** A reviewer reads what
+> you give it. If the input contains a factual error (wrong speaker mapping,
+> incorrectly normalized number, stale term), the reviewer cannot detect it —
+> it will confidently "correct" downstream claims *from the wrong premise*.
+> Those corrections look doubly authoritative (they are ① independent and
+> ② specific) — which makes them *more* dangerous because they dampen your
+> self-review skepticism.
+>
+> **Rule:** always give the reviewer the **rawest source** (raw chunk text,
+> original audio timestamps, unmerged transcript) — never your derived claims.
+> If a review correction contradicts primary evidence, re-check against the
+> primary; do not accept it because "the reviewer said so."
+>
+> **Concrete instance from this skill's training:** a reviewer inherited a wrong
+> per-chunk speaker map and "corrected" a speaker attribution in the wrong
+> direction. The correction looked plausible and came from an independent
+> reviewer, so it was initially trusted over the primary (boundary-continuation)
+> evidence. The secondary error cost one extra revision cycle.
+
+### Two-round review protocol
+
+A single review round catches content errors in the document as written.
+**A second round catches errors introduced by round 1's fixes** — and those
+are the hardest to self-detect because they seem to have been "already checked."
+In this training session, round 1 caught misattributions; round 2 caught *new*,
+systematic timestamp offsets that round 1's fix process introduced.
+
+**Protocol:**
+1. Fix round 1 findings.
+2. Rebuild all artifacts.
+3. Re-run the same review with an instruction: "round 1 issues have been fixed;
+   focus on **new** errors introduced by the fixes."
+4. Do NOT tell the reviewer what was fixed — that would bias it toward
+   re-checking those spots and missing new problems.
 
 For **code reviews**, explicitly ask the reviewer to check the categories the
 author is least likely to self-detect (in practice this catches real bugs the
@@ -133,6 +187,27 @@ inference):
   so ~26 'cannot find module' LSP errors are expected — report only new
   ones"). Without this, the verdict gets diluted by known noise and real
   findings get buried.
+
+### Verifying sub-agent reports
+
+A sub-agent's **structural or quantitative claims** ("line N contains X",
+"693/693 pairs matched", "N occurrences of term Y") are **hypotheses, not
+facts** — the sub-agent may be reading a stale or different version of the
+file than you are (concurrent edits, an external sync/checkout, a cache).
+
+**Rules:**
+- Before acting on a structural/quantitative claim, **verify it against the
+  actual file with a mechanical check** (grep/wc/script) — the same
+  "ask for the evidence" standard as for any number.
+- When your direct check **contradicts** the sub-agent's report, do not
+  conclude "the sub-agent hallucinated" on the first mismatch: **re-check which
+  version of the file each side is looking at** (file mtime, `git status` —
+  the file may have been modified externally between the sub-agent's read and
+  your check). Both directions have happened in practice: a report that was a
+  confabulation, and an identical-sounding report that was *true* because the
+  file had been clobbered in between.
+- Keep a small **structural invariant** per file you maintain (line count,
+  key marker count) so external clobbering is detected before you build on it.
 
 ### Document / report reviews
 
