@@ -479,6 +479,10 @@ changelog: |
 - **資源**：tab 模式（預設）下並行數量受機器負載與 tab 數限制，不受畫面大小影響；pane 模式下受 pane 空間限制，避免同方向連續 split 造成太窄
 - **不依賴另一個 client 的焦點 pane**：一律用 `--current`、明確 pane id、或唯一 agent 名稱
 - **ID 不猜測**：從 tools 回傳的 JSON 讀取 opaque ID（workspace/tab/pane），不要自行推斷
+- **git worktree 協作三則**：
+  - (a) 被 worktree 佔用的 branch **不能**在 main repo `git checkout`（git 會拒絕）——要給 user 看該 branch 的內容，直接 `cd` 進 worktree 目錄即可，不需要切
+  - (b) merge 一個**新增檔案**的 branch 前，先查 main 工作區有無同名 **untracked** 檔案（merge 會以 "untracked working tree file would be overwritten" 失敗）；有就先移除/挪開
+  - (c) 自主作業（user 不在場）時，**每個決策點先 commit 當回滾錨點**再動手，讓 user 事後可以後悔
 
 ## Herdr 底層語意（來自官方 `herdr` skill，用 `herdr_*` tools 時仍適用）
 

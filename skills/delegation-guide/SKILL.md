@@ -208,6 +208,11 @@ file than you are (concurrent edits, an external sync/checkout, a cache).
   file had been clobbered in between.
 - Keep a small **structural invariant** per file you maintain (line count,
   key marker count) so external clobbering is detected before you build on it.
+- **Binary/Office files (xlsx/docx/pptx) cannot be verified with grep** — after a
+  sub-agent edits one, re-verify in the main session with a *format-aware
+  independent loader*: openpyxl full load + value-range spot check, pdftotext on
+  a rendered PDF, `unzip` + XML well-formedness parse. "The file was saved
+  successfully" is not evidence the file is intact or holds what was claimed.
 
 ### Document / report reviews
 
